@@ -57,6 +57,13 @@ See [`docs/screenshots/`](docs/screenshots/):
 | `07-admin.png` | Admin (open vs VIP-only features) |
 | `08-practice.png` | Practice |
 
+Regenerate at desktop size (1440×900) with web running:
+
+```bash
+pnpm exec playwright install chromium   # once
+pnpm screenshots
+```
+
 ### Owner login
 
 1. Start Postgres + apps (`pnpm db:up` or local Postgres, then `pnpm db:push && pnpm db:seed && pnpm dev`).
