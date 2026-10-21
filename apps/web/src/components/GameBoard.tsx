@@ -105,8 +105,8 @@ export function GameBoard(props: Props) {
     try {
       if (!engineRef.current) {
         engineRef.current = createStockfish();
-        await engineRef.current.configure(skill, botElo);
       }
+      await engineRef.current.configure(skill, botElo);
       const best = await engineRef.current.bestMove(chess.fen(), { movetime });
       const elapsed = Date.now() - started;
       if (elapsed < minDelay) {
