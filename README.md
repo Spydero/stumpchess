@@ -12,20 +12,33 @@ Lightweight chess platform: random matchmaking, classic forum, roles (VIP / STA 
 ## Quick start
 
 ```bash
+cp .env.example .env
+# also copy DATABASE_URL / auth secrets into apps/web/.env.local and apps/server/.env
 pnpm install
 pnpm db:push
 pnpm db:seed
 pnpm dev
 ```
 
+Then in another terminal (with web running):
+
+```bash
+./scripts/bootstrap-owner.sh
+```
+
 - Web: http://localhost:3000  
 - API: http://localhost:4000  
 
-### Owner (seeded)
+### Owner
 
 - Username: `jOjo`
 - Email: `jojo@local.dev`
 - Password: `OwnerChangeMe123!`
+- Tree-stump avatar; public stats hidden
+
+### Screenshots
+
+See [`docs/screenshots/`](docs/screenshots/) — home, login, play, VIP analysis, forum, Owner profile.
 
 ## Google link (optional)
 
