@@ -52,6 +52,47 @@ function bestSanFromUci(fen: string, uci?: string): string | undefined {
   }
 }
 
+/** Load moves from PGN text; tolerant of missing headers / trailing junk. */
+function parsePgnMoves(raw: string) {
+  const text = raw.trim();
+  if (!text) return { error: "Paste a PGN (or open Analyze from a finished game)." };
+
+  const chess = new Chess();
+  try {
+    chess.loadPgn(text, { strict: false } as Parameters<Chess["loadPgn"]>[1]);
+  } catch {
+    // ignore — try fallback below
+  }
+  let history = chess.history({ verbose: true });
+  if (history.length) return { history };
+
+  // Fallback: strip tags and load move text only
+  const movesOnly = text
+    .replace(/\{[^}]*\}/g, " ")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\[.*?\]/g, " ")
+    .replace(/\d+\.(\.\.)?/g, " ")
+    .replace(/[!?+#]/g, "")
+    .replace(/\b(1-0|0-1|1\/2-1\/2|\*)\b/g, " ")
+    .trim();
+
+  if (!movesOnly) return { error: "No moves found in that PGN." };
+
+  const replay = new Chess();
+  const tokens = movesOnly.split(/\s+/).filter(Boolean);
+  for (const tok of tokens) {
+    try {
+      const mv = replay.move(tok);
+      if (!mv) return { error: `Could not parse move: ${tok}` };
+    } catch {
+      return { error: `Could not parse move: ${tok}` };
+    }
+  }
+  history = replay.history({ verbose: true });
+  if (!history.length) return { error: "No moves found in that PGN." };
+  return { history };
+}
+
 export default function AnalysisPage() {
   const { data, isPending } = useSession();
   const user = data?.user as { id: string; role?: string; vipExpiresAt?: string | null } | undefined;
@@ -148,6 +189,13 @@ export default function AnalysisPage() {
   );
 
   async function runAnalysis() {
+    const parsed = parsePgnMoves(pgn);
+    if ("error" in parsed && parsed.error) {
+      setProgress(parsed.error);
+      return;
+    }
+    const history = parsed.history!;
+
     cancelRef.current = false;
     stopPlayback();
     setBusy(true);
@@ -161,15 +209,6 @@ export default function AnalysisPage() {
       await engineRef.current.configureAnalysis();
 
       const chess = new Chess();
-      try {
-        chess.loadPgn(pgn.trim());
-      } catch {
-        throw new Error("Invalid PGN");
-      }
-      const history = chess.history({ verbose: true });
-      if (!history.length) throw new Error("No moves found in PGN");
-      chess.reset();
-
       const analyzed: AnalyzedMove[] = [];
       // Wall-clock per search so deep depth still progresses
       const beforeTime = Math.min(10000, Math.max(1500, depth * 250));
@@ -272,7 +311,6 @@ export default function AnalysisPage() {
         setIdx(-1);
       }
     } catch (e) {
-      console.error(e);
       setProgress(e instanceof Error ? e.message : "Failed to analyze PGN");
       setBusy(false);
       stopPlayback();
@@ -510,7 +548,7 @@ export default function AnalysisPage() {
         <div className="panel p-4 space-y-3">
           <textarea
             className="input min-h-36 ui text-xs"
-            placeholder="Paste PGN"
+            placeholder={"Paste PGN, e.g.\n1. e4 e5 2. Nf3 Nc6 3. Bb5 a6"}
             value={pgn}
             onChange={(e) => setPgn(e.target.value)}
             disabled={busy}

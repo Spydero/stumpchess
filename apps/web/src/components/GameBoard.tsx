@@ -380,7 +380,18 @@ export function GameBoard(props: Props) {
   }
 
   function openAnalysis() {
-    const pgn = chessRef.current.pgn();
+    let pgn = chessRef.current.pgn();
+    // Ensure move text exists even if headers-only somehow
+    if (!chessRef.current.history().length) {
+      return;
+    }
+    if (!/\d+\./.test(pgn)) {
+      pgn = chessRef.current.history().reduce((acc, san, i) => {
+        if (i % 2 === 0) acc += `${Math.floor(i / 2) + 1}. ${san} `;
+        else acc += `${san} `;
+        return acc;
+      }, "").trim();
+    }
     try {
       sessionStorage.setItem("stumpchess-analyze-pgn", pgn);
     } catch {
