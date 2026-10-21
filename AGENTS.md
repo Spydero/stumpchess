@@ -76,8 +76,8 @@ Defined in `packages/shared/src/index.ts` + Prisma `Role` enum.
 
 | Role | Access |
 |------|--------|
-| MEMBER | Play, forum, free vs computer, openings book |
-| VIP_30 / VIP_PERM | `/analysis`, `/practice`, mistake drills, openings Analysis toggle (`hasVipAccess`) |
+| MEMBER | Play, forum, free vs computer, openings book + live SF on `/openings` |
+| VIP_30 / VIP_PERM | `/analysis`, `/practice`, mistake drills (`hasVipAccess`) |
 | STA | Limited forum mod (time-limited) |
 | LTA+ | Can assign VIP/STA (`/admin`) |
 | OWNER | Everything; profile stats hidden |
@@ -92,7 +92,7 @@ VIP check: `hasVipAccess(role, vipExpiresAt)` in shared; web helper `apps/web/sr
 |------|------|--------|
 | `/` | `app/page.tsx` | Home |
 | `/play` | `app/play/page.tsx` | Queue, vs computer, challenge |
-| `/openings` | `app/openings/page.tsx` | ECO book explorer; VIP Analysis toggle |
+| `/openings` | `app/openings/page.tsx` | ECO book explorer; free Analysis toggle; Book badges |
 | `/game/[id]` | `app/game/[id]/page.tsx` | Live game shell → `GameBoard` |
 | `/games` | `app/games/page.tsx` | History; VIP → analyze / mistakes |
 | `/analysis` | `app/analysis/page.tsx` | VIP deep review (SF batch) |
@@ -322,10 +322,11 @@ Owner avatar asset: `public/avatars/tree-stump.jpg` (seed sets `image`). Fallbac
 | `apps/web/data/chess-openings/*.tsv` | Vendored lichess-org/chess-openings (CC0) |
 | `apps/web/scripts/build-openings.mjs` | TSV → `src/data/openings-book.json` trie |
 | `apps/web/src/lib/openings.ts` | Lookup / children / roots |
-| `components/OpeningsExplorer.tsx` | Board + book table + VIP Analysis toggle |
-| `app/openings/page.tsx` | Route (browse free; analysis VIP) |
+| `components/OpeningsExplorer.tsx` | Board + book table + Analysis toggle + Book badges |
+| `components/BookMoveBadge.tsx` | Green Book move chip |
+| `app/openings/page.tsx` | Route (browse + live SF free; deep `/analysis` still VIP) |
 
-“Popularity” bars = book-line coverage counts, not live win rates.
+“Popularity” bars = book-line coverage counts, not live win rates. Live Analysis uses client Stockfish (same as Practice coach); do not call `stop()` in the fen-effect cleanup or searches race.
 
 ## Deferred / not shipped
 

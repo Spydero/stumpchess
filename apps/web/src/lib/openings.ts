@@ -69,6 +69,17 @@ export function lookup(uciPath: string[]): BookNode | null {
   return nodeAt(uciPath);
 }
 
+/** True when this exact UCI path exists in the book. */
+export function isInBook(uciPath: string[]): boolean {
+  if (!uciPath.length) return true; // starting position is "in book"
+  return nodeAt(uciPath) != null;
+}
+
+/** True when the last move of the path is a known book continuation. */
+export function isBookMove(uciPath: string[]): boolean {
+  return uciPath.length > 0 && nodeAt(uciPath) != null;
+}
+
 /** Next book moves from position after uciPath, sorted by coverage. */
 export function children(uciPath: string[], fen: string): BookChild[] {
   const node = nodeAt(uciPath);

@@ -19,8 +19,8 @@ export default function OpeningsPage() {
         <p className="forum-kicker">Explore</p>
         <h1 className="text-3xl sm:text-4xl mt-1 mb-2">Openings</h1>
         <p className="muted ui text-base max-w-xl m-0">
-          Browse named openings from a local ECO book ({meta.lines.toLocaleString()} lines). Optional
-          Stockfish analysis for VIP.
+          Browse named openings from a local ECO book ({meta.lines.toLocaleString()} lines). Toggle
+          Analysis for live Stockfish on the board. Book moves show a green Book badge.
         </p>
       </header>
 

@@ -9,16 +9,18 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import Link from "next/link";
 import { Chess, type Square } from "chess.js";
 import { Chessboard } from "react-chessboard";
 import type { Arrow } from "react-chessboard/dist/chessboard/types";
+import { BookMoveBadge } from "@/components/BookMoveBadge";
 import { EvalBar } from "@/components/EvalBar";
 import {
   OPENING_ROOTS,
   bookMeta,
   buildPgnFromSans,
   children as bookChildren,
+  isBookMove,
+  isInBook,
   openingAt,
   type BookChild,
 } from "@/lib/openings";
@@ -41,9 +43,10 @@ const LAST_TO = "rgba(61, 107, 79, 0.42)";
 const SELECT = "rgba(61, 107, 79, 0.55)";
 const DEST = "rgba(26, 22, 18, 0.16)";
 
-type HistMove = { san: string; uci: string; fenAfter: string };
+type HistMove = { san: string; uci: string; fenAfter: string; book: boolean };
 
 type Props = {
+  /** Kept for API compat; live analysis is free on this page (client Stockfish). */
   isVip: boolean;
 };
 
@@ -64,16 +67,25 @@ export function OpeningsExplorer({ isVip }: Props) {
   const [promo, setPromo] = useState<{ from: Square; to: Square } | null>(null);
   const [analysisOn, setAnalysisOn] = useState(false);
   const [coachInfo, setCoachInfo] = useState<EngineInfo | null>(null);
+  const [engineStatus, setEngineStatus] = useState<"idle" | "loading" | "thinking" | "error">("idle");
   const [copied, setCopied] = useState(false);
 
   const coachEngine = useRef<ReturnType<typeof createStockfish> | null>(null);
   const coachGen = useRef(0);
+  const analysisOnRef = useRef(analysisOn);
+  const runCoachRef = useRef<(() => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    analysisOnRef.current = analysisOn;
+  }, [analysisOn]);
 
   const uciPath = useMemo(() => history.slice(0, ply).map((m) => m.uci), [history, ply]);
   const sans = useMemo(() => history.slice(0, ply).map((m) => m.san), [history, ply]);
   const opening = useMemo(() => openingAt(uciPath), [uciPath]);
   const nextMoves = useMemo(() => bookChildren(uciPath, fen), [uciPath, fen]);
   const maxCount = nextMoves[0]?.count ?? 1;
+  const inBook = useMemo(() => isInBook(uciPath), [uciPath]);
+  const lastWasBook = ply > 0 && !!history[ply - 1]?.book;
 
   const syncToPly = useCallback((nextHist: HistMove[], nextPly: number) => {
     const f = fenAtPly(nextHist, nextPly);
@@ -85,6 +97,21 @@ export function OpeningsExplorer({ isVip }: Props) {
     setOptionSquares({});
     setPromo(null);
   }, []);
+
+  const appendMove = useCallback(
+    (san: string, uci: string, fenAfter: string) => {
+      const nextPath = [...history.slice(0, ply).map((m) => m.uci), uci];
+      const entry: HistMove = {
+        san,
+        uci,
+        fenAfter,
+        book: isBookMove(nextPath),
+      };
+      const nextHist = [...history.slice(0, ply), entry];
+      syncToPly(nextHist, nextHist.length);
+    },
+    [history, ply, syncToPly]
+  );
 
   const playUci = useCallback(
     (uci: string) => {
@@ -99,16 +126,10 @@ export function OpeningsExplorer({ isVip }: Props) {
         return false;
       }
       if (!move) return false;
-      const entry: HistMove = {
-        san: move.san,
-        uci: move.from + move.to + (move.promotion || ""),
-        fenAfter: chess.fen(),
-      };
-      const nextHist = [...history.slice(0, ply), entry];
-      syncToPly(nextHist, nextHist.length);
+      appendMove(move.san, move.from + move.to + (move.promotion || ""), chess.fen());
       return true;
     },
-    [history, ply, syncToPly]
+    [history, ply, appendMove]
   );
 
   const tryMove = useCallback(
@@ -128,16 +149,10 @@ export function OpeningsExplorer({ isVip }: Props) {
         return false;
       }
       if (!move) return false;
-      const entry: HistMove = {
-        san: move.san,
-        uci: move.from + move.to + (move.promotion || ""),
-        fenAfter: chess.fen(),
-      };
-      const nextHist = [...history.slice(0, ply), entry];
-      syncToPly(nextHist, nextHist.length);
+      appendMove(move.san, move.from + move.to + (move.promotion || ""), chess.fen());
       return true;
     },
-    [history, ply, syncToPly]
+    [history, ply, appendMove]
   );
 
   const onPieceDrop = useCallback(
@@ -199,66 +214,79 @@ export function OpeningsExplorer({ isVip }: Props) {
     return coachEngine.current;
   }, []);
 
-  useEffect(() => {
-    if (!analysisOn || !isVip) {
-      coachGen.current++;
-      coachEngine.current?.stop();
+  const runCoach = useCallback(async () => {
+    if (!analysisOnRef.current) {
       setCoachInfo(null);
+      setEngineStatus("idle");
       return;
     }
 
-    const fenNow = fen;
+    const fenNow = chessRef.current.fen();
     const gen = ++coachGen.current;
-    let cancelled = false;
+    setEngineStatus((s) => (s === "error" ? "loading" : s === "idle" ? "loading" : "thinking"));
 
-    (async () => {
-      try {
-        const engine = await ensureCoach();
-        if (cancelled || gen !== coachGen.current) return;
-        let lastArrowSig = "";
-        let lastUiDepth = -1;
-        const info = await engine.analyze(fenNow, {
-          depth: 16,
-          onUpdate: (partial) => {
-            if (gen !== coachGen.current) return;
-            if (!partial.bestMove && !partial.pvs?.length) return;
-            const arrowSig = (partial.pvs || [])
-              .slice(0, 3)
-              .map((p) => p.uci)
-              .join(",");
-            const d = partial.depth || 0;
-            const arrowsChanged = arrowSig !== lastArrowSig;
-            const depthMilestone = d === 16 || (d > 0 && d % 3 === 0 && d !== lastUiDepth);
-            if (!arrowsChanged && !depthMilestone) return;
-            lastArrowSig = arrowSig;
-            lastUiDepth = d;
-            startTransition(() => setCoachInfo(partial));
-          },
-        });
-        if (gen === coachGen.current) {
-          startTransition(() => setCoachInfo(info));
-        }
-      } catch {
-        /* ignore */
-      }
-    })();
+    try {
+      const engine = await ensureCoach();
+      if (gen !== coachGen.current || !analysisOnRef.current) return;
+      setEngineStatus("thinking");
 
-    return () => {
-      cancelled = true;
+      let lastArrowSig = "";
+      let lastUiDepth = -1;
+      const info = await engine.analyze(fenNow, {
+        depth: 16,
+        onUpdate: (partial) => {
+          if (gen !== coachGen.current || !analysisOnRef.current) return;
+          if (!partial.bestMove && !partial.pvs?.length) return;
+          const arrowSig = (partial.pvs || [])
+            .slice(0, 3)
+            .map((p) => p.uci)
+            .join(",");
+          const d = partial.depth || 0;
+          const arrowsChanged = arrowSig !== lastArrowSig;
+          const depthMilestone = d === 16 || (d > 0 && d % 3 === 0 && d !== lastUiDepth);
+          if (!arrowsChanged && !depthMilestone) return;
+          lastArrowSig = arrowSig;
+          lastUiDepth = d;
+          startTransition(() => setCoachInfo(partial));
+        },
+      });
+
+      if (gen !== coachGen.current || !analysisOnRef.current) return;
+      startTransition(() => setCoachInfo(info));
+      setEngineStatus(info.bestMove || info.pvs?.length ? "idle" : "thinking");
+    } catch (err) {
+      console.error("Openings analysis failed", err);
+      if (gen === coachGen.current) setEngineStatus("error");
+    }
+  }, [ensureCoach]);
+
+  useEffect(() => {
+    runCoachRef.current = runCoach;
+  }, [runCoach]);
+
+  // Debounced coach (Practice pattern). Do not stop() on cleanup — that races search epochs.
+  useEffect(() => {
+    if (!analysisOn) {
       coachGen.current++;
       coachEngine.current?.stop();
-    };
-  }, [analysisOn, isVip, fen, ensureCoach]);
+      setCoachInfo(null);
+      setEngineStatus("idle");
+      return;
+    }
+    const t = setTimeout(() => void runCoachRef.current?.(), 80);
+    return () => clearTimeout(t);
+  }, [analysisOn, fen]);
 
   useEffect(() => {
     return () => {
+      coachGen.current++;
       coachEngine.current?.dispose();
       coachEngine.current = null;
     };
   }, []);
 
   const coachArrows = useMemo((): Arrow[] => {
-    if (!analysisOn || !isVip || !coachInfo) return [];
+    if (!analysisOn || !coachInfo) return [];
     const lines = (
       coachInfo.pvs?.length
         ? coachInfo.pvs
@@ -283,7 +311,7 @@ export function OpeningsExplorer({ isVip }: Props) {
       out.push([m.from as Square, m.to as Square, colors[i]]);
     }
     return out;
-  }, [analysisOn, isVip, coachInfo]);
+  }, [analysisOn, coachInfo]);
 
   const whiteCp = coachInfo
     ? toWhiteEval(chessRef.current.turn(), coachInfo.scoreCp, coachInfo.mate)
@@ -327,20 +355,26 @@ export function OpeningsExplorer({ isVip }: Props) {
     if (!m) return;
     const move = chess.move({ from: m.from, to: m.to });
     if (!move) return;
-    const entry: HistMove = {
-      san: move.san,
-      uci: move.from + move.to,
-      fenAfter: chess.fen(),
-    };
-    syncToPly([entry], 1);
+    const fullUci = move.from + move.to;
+    syncToPly(
+      [
+        {
+          san: move.san,
+          uci: fullUci,
+          fenAfter: chess.fen(),
+          book: isBookMove([fullUci]),
+        },
+      ],
+      1
+    );
   }
 
   return (
     <div className="openings-layout rise-in">
       <div className="openings-board-col">
         <div className="flex gap-2 sm:gap-3 items-stretch">
-          {analysisOn && isVip && <EvalBar whiteCp={whiteCp} />}
-          <div className="flex-1 min-w-0 max-w-[min(100%,560px)]">
+          {analysisOn && <EvalBar whiteCp={coachInfo ? whiteCp : 0} />}
+          <div className="flex-1 min-w-0 max-w-[min(100%,560px)] relative">
             <Chessboard
               position={fen}
               onPieceDrop={onPieceDrop}
@@ -354,6 +388,11 @@ export function OpeningsExplorer({ isVip }: Props) {
               customDarkSquareStyle={DARK_SQ}
               customLightSquareStyle={LIGHT_SQ}
             />
+            {lastWasBook && (
+              <div className="openings-book-float">
+                <BookMoveBadge />
+              </div>
+            )}
           </div>
         </div>
 
@@ -421,12 +460,7 @@ export function OpeningsExplorer({ isVip }: Props) {
 
         <div className="mt-3 flex flex-wrap gap-1.5">
           {OPENING_ROOTS.map((r) => (
-            <button
-              key={r.uci}
-              type="button"
-              className="chip-btn"
-              onClick={() => jumpRoot(r.uci)}
-            >
+            <button key={r.uci} type="button" className="chip-btn" onClick={() => jumpRoot(r.uci)}>
               {r.label}
             </button>
           ))}
@@ -435,45 +469,66 @@ export function OpeningsExplorer({ isVip }: Props) {
 
       <aside className="openings-side panel">
         <div className="openings-side-head">
-          <div>
+          <div className="min-w-0">
             <p className="forum-kicker mb-1">Opening</p>
+            <div className="flex flex-wrap items-center gap-2">
+              {opening ? (
+                <>
+                  <p className="ui text-xs font-bold tracking-wide text-[var(--accent)] m-0">
+                    {opening.eco}
+                  </p>
+                  {inBook && <BookMoveBadge compact />}
+                </>
+              ) : inBook ? (
+                <BookMoveBadge />
+              ) : (
+                <span className="badge" style={{ color: "var(--muted)" }}>
+                  Off book
+                </span>
+              )}
+            </div>
             {opening ? (
-              <>
-                <p className="ui text-xs font-bold tracking-wide text-[var(--accent)] m-0">{opening.eco}</p>
-                <h2 className="text-xl m-0 mt-0.5 leading-snug">{opening.name}</h2>
-              </>
+              <h2 className="text-xl m-0 mt-0.5 leading-snug">{opening.name}</h2>
             ) : (
-              <h2 className="text-xl m-0">Starting position</h2>
+              <h2 className="text-xl m-0 mt-0.5">{inBook ? "Starting position" : "Off book"}</h2>
             )}
-            {analysisOn && isVip && coachInfo && (
+            {analysisOn && (
               <p className="ui text-sm muted mt-1 mb-0">
-                Engine {formatEval(whiteCp)}
-                {coachInfo.depth ? ` · d${coachInfo.depth}` : ""}
+                {engineStatus === "loading" && <span className="pulse-soft">Loading engine…</span>}
+                {engineStatus === "thinking" && !coachInfo && (
+                  <span className="pulse-soft">Analyzing…</span>
+                )}
+                {engineStatus === "error" && (
+                  <span className="text-[var(--danger)]">Engine failed. Toggle Analysis off/on.</span>
+                )}
+                {coachInfo && (
+                  <>
+                    Engine {formatEval(whiteCp)}
+                    {coachInfo.depth ? ` · d${coachInfo.depth}` : ""}
+                    {engineStatus === "thinking" ? " · …" : ""}
+                  </>
+                )}
               </p>
             )}
           </div>
           <label className="analysis-toggle ui text-sm">
             <input
               type="checkbox"
-              checked={analysisOn && isVip}
-              disabled={!isVip}
-              onChange={(e) => {
-                if (!isVip) return;
-                setAnalysisOn(e.target.checked);
-              }}
+              checked={analysisOn}
+              onChange={(e) => setAnalysisOn(e.target.checked)}
             />
             <span>Analysis</span>
           </label>
         </div>
 
-        {!isVip && (
-          <p className="ui text-xs muted px-4 pb-2 m-0">
-            Book explorer is free.{" "}
-            <Link href="/practice" className="link-accent">
-              VIP
-            </Link>{" "}
-            unlocks live Stockfish on this board.
-          </p>
+        {lastWasBook && history[ply - 1] && (
+          <div className="openings-book-banner ui text-sm">
+            <BookMoveBadge />
+            <span>
+              <strong>{history[ply - 1].san}</strong> is a book move
+              {opening ? ` · ${opening.eco}` : ""}
+            </span>
+          </div>
         )}
 
         <div className="openings-moves">
@@ -491,6 +546,7 @@ export function OpeningsExplorer({ isVip }: Props) {
                       onClick={() => syncToPly(history, pair.wIdx)}
                     >
                       {pair.w.san}
+                      {pair.w.book && <BookMoveBadge compact />}
                     </button>
                   )}
                   {pair.b && (
@@ -500,6 +556,7 @@ export function OpeningsExplorer({ isVip }: Props) {
                       onClick={() => syncToPly(history, pair.bIdx)}
                     >
                       {pair.b.san}
+                      {pair.b.book && <BookMoveBadge compact />}
                     </button>
                   )}
                 </li>
@@ -550,7 +607,10 @@ function BookRow({
   return (
     <li>
       <button type="button" className="openings-book-row" onClick={onPick}>
-        <span className="openings-book-san">{row.san}</span>
+        <span className="openings-book-san">
+          {row.san}
+          <BookMoveBadge compact />
+        </span>
         <span className="openings-book-bar-wrap" aria-hidden>
           <span className="openings-book-bar" style={{ width: `${pct}%` }} />
         </span>

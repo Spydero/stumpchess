@@ -50,8 +50,8 @@ Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` / `apps/web/.env.loc
 
 | Role | Notes |
 |------|--------|
-| Member | Play, forum, search, bots, openings explorer (book only) |
-| VIP 30 / VIP Permanent | Full analysis, Practice (coach / both sides), mistake drills, openings engine analysis |
+| Member | Play, forum, search, bots, openings explorer (book + live SF) |
+| VIP 30 / VIP Permanent | Full game analysis, Practice (coach / both sides), mistake drills |
 | STA (red, 28d) | Limited forum mod |
 | LTA (blue) | Assign VIP/STA |
 | Manager | High staff |
@@ -60,7 +60,7 @@ Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` / `apps/web/.env.loc
 ## Openings
 
 - **`/openings`**: offline explorer from vendored [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0). Rebuild with `pnpm --filter @chess/web build-openings`.
-- Book browsing is free; live Stockfish on the explorer board needs VIP.
+- Book browsing and live Stockfish on the explorer board are free; deep review stays on VIP `/analysis`.
 
 ## VIP Practice
 
