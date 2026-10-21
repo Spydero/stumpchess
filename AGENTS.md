@@ -219,7 +219,7 @@ Helpers: `encodeBotLevel` / `decodeBotLevel`.
 - **Saves finished games** via `POST /api/games/practice` (VIP, one-shot FINISHED row) so they appear under `/games` and can feed mistake drills after review
 - Premove vs bot; optional Web Audio move sounds
 - Live coach: eval bar, MultiPV **candidate arrows** (within ~25cp), Best/Mistake labels after human moves
-- Coach strength presets: Fast/Normal/Strong/Deep depths
+- Coach strength: depth slider (8–22) + Fast/Normal/Strong/Deep presets; TC-aware Recommended; persisted in `localStorage`
 
 ### Practice invariants / anti-jank (do not regress)
 

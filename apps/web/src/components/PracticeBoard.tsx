@@ -42,12 +42,48 @@ import {
 
 export type PracticeMode = "bot" | "sandbox" | "coach";
 
-const COACH_STRENGTH = [
-  { id: "fast", label: "Fast", depth: 10, hint: "Hints" },
-  { id: "normal", label: "Normal", depth: 12, hint: "Light" },
-  { id: "strong", label: "Strong", depth: 15, hint: "Default" },
-  { id: "deep", label: "Deep", depth: 18, hint: "Slow" },
+const COACH_DEPTH_MIN = 8;
+const COACH_DEPTH_MAX = 22;
+const COACH_DEPTH_STORAGE_KEY = "stumpchess-coach-depth";
+
+const COACH_PRESETS = [
+  { id: "fast", label: "Fast", depth: 10, hint: "Quick hints" },
+  { id: "normal", label: "Normal", depth: 12, hint: "Balanced" },
+  { id: "strong", label: "Strong", depth: 15, hint: "Solid labels" },
+  { id: "deep", label: "Deep", depth: 18, hint: "Slow / accurate" },
 ] as const;
+
+function clampCoachDepth(n: number) {
+  if (!Number.isFinite(n)) return 15;
+  return Math.max(COACH_DEPTH_MIN, Math.min(COACH_DEPTH_MAX, Math.round(n)));
+}
+
+function readStoredCoachDepth(): number {
+  if (typeof window === "undefined") return 15;
+  try {
+    const raw = localStorage.getItem(COACH_DEPTH_STORAGE_KEY);
+    if (raw == null) return 15;
+    return clampCoachDepth(Number(raw));
+  } catch {
+    return 15;
+  }
+}
+
+/** Suggested depth for the current Practice TC (shown as Recommended). */
+function recommendedCoachDepth(tcInitialMs: number) {
+  if (tcInitialMs > 0 && tcInitialMs <= 60_000) return 10; // 1+0
+  if (tcInitialMs > 0 && tcInitialMs <= 180_000) return 12; // 3+x
+  if (tcInitialMs > 0 && tcInitialMs <= 300_000) return 15; // 5+x
+  return 18; // longer / unlimited
+}
+
+function coachDepthHint(depth: number) {
+  if (depth <= 10) return "Fast feedback";
+  if (depth <= 13) return "Good for blitz";
+  if (depth <= 16) return "Solid move labels";
+  if (depth <= 19) return "Deeper / slower";
+  return "Max local strength";
+}
 
 type AnnotatedMove = {
   san: string;
@@ -118,7 +154,7 @@ export function PracticeBoard({
   const engineEloRef = useRef(2000);
   const [tcId, setTcId] = useState<string>("5+0");
   const [liveAnalysis, setLiveAnalysis] = useState(true);
-  const [coachStrength, setCoachStrength] = useState<(typeof COACH_STRENGTH)[number]["id"]>("strong");
+  const [coachDepth, setCoachDepth] = useState(() => readStoredCoachDepth());
   const [soundOn, setSoundOn] = useState(true);
   const [fen, setFen] = useState(() => new Chess().fen());
   const [orientation, setOrientation] = useState<"white" | "black">("white");
@@ -185,7 +221,8 @@ export function PracticeBoard({
   }, [bot]);
   const tc = practiceTcById(tcId);
   const timed = tc.initialMs > 0;
-  const strength = COACH_STRENGTH.find((s) => s.id === coachStrength) || COACH_STRENGTH[1];
+  const recommendedDepth = recommendedCoachDepth(tc.initialMs);
+  const activePreset = COACH_PRESETS.find((s) => s.depth === coachDepth) || null;
 
   useEffect(() => {
     coachInfoRef.current = coachInfo;
@@ -194,8 +231,13 @@ export function PracticeBoard({
     liveRef.current = mode === "coach" ? true : liveAnalysis;
   }, [liveAnalysis, mode]);
   useEffect(() => {
-    depthRef.current = strength.depth;
-  }, [strength.depth]);
+    depthRef.current = coachDepth;
+    try {
+      localStorage.setItem(COACH_DEPTH_STORAGE_KEY, String(coachDepth));
+    } catch {
+      /* ignore */
+    }
+  }, [coachDepth]);
   useEffect(() => {
     if (mode === "coach") setLiveAnalysis(true);
   }, [mode]);
@@ -783,7 +825,7 @@ export function PracticeBoard({
     coachInfoRef.current = null;
     const t = setTimeout(() => void runCoach(), 100);
     return () => clearTimeout(t);
-  }, [fen, coachOn, coachStrength, runCoach]);
+  }, [fen, coachOn, coachDepth, runCoach]);
 
   useEffect(() => {
     if (!vsBot) return;
@@ -1555,25 +1597,85 @@ export function PracticeBoard({
           </label>
 
           {coachOn && (
-            <div>
-              <label className="ui text-xs muted block mb-1">
-                Coach strength · depth {strength.depth} · {strength.hint}
-              </label>
-              <div className="grid grid-cols-4 gap-1">
-                {COACH_STRENGTH.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    className={`btn !px-1 !py-1.5 !text-xs ${
-                      coachStrength === s.id ? "btn-accent" : "btn-ghost"
-                    }`}
-                    onClick={() => setCoachStrength(s.id)}
-                    title={s.hint}
-                  >
-                    {s.label}
-                  </button>
-                ))}
+            <div className="space-y-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <label className="ui text-xs muted m-0" htmlFor="coach-depth">
+                  Coach strength
+                </label>
+                <span className="ui text-xs tabular-nums">
+                  Depth {coachDepth}
+                  <span className="muted"> · {coachDepthHint(coachDepth)}</span>
+                </span>
               </div>
+              <input
+                id="coach-depth"
+                type="range"
+                min={COACH_DEPTH_MIN}
+                max={COACH_DEPTH_MAX}
+                step={1}
+                value={coachDepth}
+                onChange={(e) => setCoachDepth(clampCoachDepth(Number(e.target.value)))}
+                className="w-full accent-[var(--accent)]"
+                aria-valuemin={COACH_DEPTH_MIN}
+                aria-valuemax={COACH_DEPTH_MAX}
+                aria-valuenow={coachDepth}
+                aria-label="Coach analysis depth"
+              />
+              <div className="flex justify-between ui text-[10px] muted tabular-nums">
+                <span>{COACH_DEPTH_MIN}</span>
+                <span>{COACH_DEPTH_MAX}</span>
+              </div>
+              <div className="grid grid-cols-4 gap-1">
+                {COACH_PRESETS.map((s) => {
+                  const isRec = s.depth === recommendedDepth;
+                  const selected = coachDepth === s.depth;
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className={`btn !px-1 !py-1.5 !text-xs relative ${
+                        selected ? "btn-accent" : "btn-ghost"
+                      }`}
+                      onClick={() => setCoachDepth(s.depth)}
+                      title={
+                        isRec
+                          ? `${s.hint} · Recommended for ${tc.label}`
+                          : `${s.hint} · depth ${s.depth}`
+                      }
+                    >
+                      {s.label}
+                      {isRec && (
+                        <span
+                          className={`block text-[9px] leading-tight ${
+                            selected ? "opacity-90" : "text-[var(--accent)]"
+                          }`}
+                        >
+                          Rec
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="ui text-xs muted m-0">
+                {activePreset
+                  ? `${activePreset.label} (d${activePreset.depth})`
+                  : `Custom (d${coachDepth})`}
+                {" · "}
+                Recommended for {tc.label}: depth {recommendedDepth}
+                {coachDepth !== recommendedDepth && (
+                  <>
+                    {" · "}
+                    <button
+                      type="button"
+                      className="link-accent ui text-xs"
+                      onClick={() => setCoachDepth(recommendedDepth)}
+                    >
+                      Use recommended
+                    </button>
+                  </>
+                )}
+              </p>
             </div>
           )}
 
