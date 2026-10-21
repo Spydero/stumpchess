@@ -13,6 +13,8 @@ type Game = {
   endedAt: string | null;
   isBot: boolean;
   pgn?: string;
+  analyzedAt?: string | null;
+  analysisDepth?: number | null;
   white: { username: string } | null;
   black: { username: string } | null;
 };
@@ -103,13 +105,23 @@ export default function GamesPage() {
                 {g.timeControl} {g.result || ""}
               </span>
               {canAnalyze && g.pgn?.trim() ? (
-                <Link
-                  href={`/analysis?gameId=${g.id}`}
-                  className="btn btn-accent !py-1 !px-2 !text-xs"
-                  onClick={() => analyze(g)}
-                >
-                  Analyze
-                </Link>
+                <>
+                  <Link
+                    href={`/analysis?gameId=${g.id}`}
+                    className="btn btn-accent !py-1 !px-2 !text-xs"
+                    onClick={() => analyze(g)}
+                  >
+                    {g.analyzedAt ? "Open review" : "Analyze"}
+                  </Link>
+                  {g.analyzedAt ? (
+                    <Link
+                      href={`/practice/mistakes?gameId=${g.id}`}
+                      className="btn btn-ghost !py-1 !px-2 !text-xs"
+                    >
+                      Practice mistakes
+                    </Link>
+                  ) : null}
+                </>
               ) : null}
             </div>
           </div>

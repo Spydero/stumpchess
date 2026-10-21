@@ -22,8 +22,9 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
+    <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-start rise-in">
       <section>
+        <p className="forum-kicker">Club chess</p>
         <h1 className="text-4xl sm:text-5xl mb-3">
           stump<span className="text-[var(--accent)]">chess</span>
         </h1>
@@ -37,12 +38,15 @@ export default function HomePage() {
           <Link href="/play#bot" className="btn btn-ghost">
             vs Computer
           </Link>
+          <Link href="/practice" className="btn btn-ghost">
+            Practice
+          </Link>
           <Link href="/forum" className="btn btn-ghost">
             Forum
           </Link>
         </div>
 
-        <div className="mt-8 panel overflow-hidden">
+        <div className="mt-8 panel overflow-hidden panel-interactive">
           <div className="px-4 py-3 border-b border-[var(--line)] flex items-center justify-between">
             <h2 className="text-lg m-0">Recent games</h2>
             <Link href="/games" className="ui text-sm link-accent">
@@ -61,12 +65,18 @@ export default function HomePage() {
               </Link>
             ))
           ) : (
-            <p className="p-4 muted ui text-sm">No games yet. Be the first to play.</p>
+            <div className="forum-empty">
+              <h3>No games yet</h3>
+              <p className="muted ui text-sm mb-3">Be the first to play a match.</p>
+              <Link href="/play" className="btn btn-accent">
+                Find a game
+              </Link>
+            </div>
           )}
         </div>
       </section>
 
-      <section className="panel p-3 sm:p-4">
+      <section className="panel p-3 sm:p-4 panel-interactive rise-in rise-in-delay-2">
         <div
           className="aspect-square w-full rounded-sm border border-[var(--line)] overflow-hidden grid"
           style={{ gridTemplateColumns: "repeat(8, 1fr)", gridTemplateRows: "repeat(8, 1fr)" }}

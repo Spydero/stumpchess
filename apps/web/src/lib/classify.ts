@@ -1,10 +1,15 @@
+/**
+ * Labels for Stockfish-reported centipawn loss only.
+ * Thresholds match common SF review UIs (Lichess/Chess.com-style bands).
+ * No opening book, no ply heuristics. Purely engine delta.
+ */
+
 export type ClassLabel =
   | "Brilliant"
   | "Great"
   | "Best"
   | "Excellent"
   | "Good"
-  | "Book"
   | "Inaccuracy"
   | "Mistake"
   | "Miss"
@@ -19,7 +24,6 @@ export const CLASS_META: Record<
   Best: { color: "#96bc4b", symbol: "★", title: "Best" },
   Excellent: { color: "#96bc4b", symbol: "✓", title: "Excellent" },
   Good: { color: "#81b64c", symbol: "✓", title: "Good" },
-  Book: { color: "#a88865", symbol: "≡", title: "Book" },
   Inaccuracy: { color: "#f7c631", symbol: "?!", title: "Inaccuracy" },
   Mistake: { color: "#e6912c", symbol: "?", title: "Mistake" },
   Miss: { color: "#e6912c", symbol: "✕", title: "Miss" },
@@ -27,33 +31,28 @@ export const CLASS_META: Record<
 };
 
 export function classifyMove(opts: {
+  /** Centipawn loss vs Stockfish eval (mover's perspective) */
   cpl: number;
+  /** Played Stockfish's bestmove */
   isBest: boolean;
-  /** How much better best was vs 2nd best (side to move, before move), cp */
   bestGap?: number;
-  /** Eval swing in player's favor after playing best-ish move */
   gained?: number;
-  /** Played move loses a winning mate / huge chance */
   missedWin?: boolean;
-  ply: number;
   isCaptureOrCheck: boolean;
 }): ClassLabel {
-  const { cpl, isBest, bestGap = 0, gained = 0, missedWin, ply, isCaptureOrCheck } = opts;
+  const { cpl, isBest, bestGap = 0, gained = 0, missedWin, isCaptureOrCheck } = opts;
 
-  if (missedWin && cpl >= 80) return "Miss";
+  if (missedWin && cpl >= 100) return "Miss";
 
-  // Opening book-ish: early quiet accuracy
-  if (ply <= 12 && cpl <= 20 && !isCaptureOrCheck) return isBest ? "Best" : "Book";
-
-  // Brilliant: best (or near) that gains a lot / only-move tactics feel
-  if ((isBest || cpl <= 15) && gained >= 120 && (isCaptureOrCheck || bestGap >= 80)) {
-    return "Brilliant";
+  if (isBest || cpl <= 5) {
+    if (gained >= 150 && (isCaptureOrCheck || bestGap >= 120)) return "Brilliant";
+    if (bestGap >= 200) return "Great";
+    return "Best";
   }
-  if (isBest && bestGap >= 150 && cpl <= 10) return "Great";
-  if (isBest) return "Best";
-  if (cpl <= 10) return "Excellent";
-  if (cpl <= 25) return "Good";
-  if (cpl <= 60) return "Inaccuracy";
-  if (cpl <= 120) return "Mistake";
+
+  if (cpl <= 20) return "Excellent";
+  if (cpl <= 40) return "Good";
+  if (cpl <= 80) return "Inaccuracy";
+  if (cpl <= 150) return "Mistake";
   return "Blunder";
 }

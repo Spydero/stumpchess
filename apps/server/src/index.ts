@@ -22,6 +22,11 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
 
 const app = express();
 app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
+// Allow browser pages with COEP to call this API (multi-thread Stockfish needs COEP)
+app.use((_req, res, next) => {
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  next();
+});
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));

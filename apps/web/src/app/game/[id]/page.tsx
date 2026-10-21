@@ -2,7 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { botEloFromSkill, botPresetBySkill } from "@chess/shared";
+import {
+  PERSONALITY_BOTS,
+  STOCKFISH_BOT,
+  botPresetBySkill,
+  decodeBotLevel,
+  formatEngineElo,
+  isEngineFullStrength,
+} from "@chess/shared";
 import { useSession } from "@/lib/auth-client";
 import { apiFetch } from "@/lib/api";
 import { GameBoard } from "@/components/GameBoard";
@@ -69,10 +76,15 @@ export default function GamePage() {
 
   const isBot = game.isBot || search.get("bot") === "1";
   const isParticipant = user.id === game.whiteId || user.id === game.blackId;
-  const skill = game.botLevel ?? 5;
-  const bot = botPresetBySkill(skill);
-  const elo = botEloFromSkill(skill);
-  const botLabel = `Bot ${elo}`;
+  const decoded = decodeBotLevel(game.botLevel ?? 5);
+  const bot = botPresetBySkill(decoded.skill);
+  const named =
+    decoded.kind === "engine"
+      ? STOCKFISH_BOT
+      : PERSONALITY_BOTS.find((b) => b.skill === decoded.skill);
+  const botLabel = named
+    ? named.name
+    : `Bot ${decoded.kind === "engine" ? formatEngineElo(decoded.elo) : decoded.elo}`;
 
   if (game.status === "WAITING") {
     return (
@@ -108,7 +120,24 @@ export default function GamePage() {
       </h1>
       {isBot && (
         <p className="ui text-sm muted mb-4">
-          {elo} Elo · {bot.label}
+          {named ? (
+            <>
+              {named.name}
+              {" · "}
+              {decoded.kind === "engine"
+                ? isEngineFullStrength(decoded.elo)
+                  ? "Max"
+                  : `~${formatEngineElo(decoded.elo)} Elo`
+                : "style" in named
+                  ? `~${decoded.elo} Elo · ${named.style}`
+                  : `~${decoded.elo} Elo`}
+              <span className="block text-xs mt-0.5">{named.tagline}</span>
+            </>
+          ) : (
+            <>
+              {decoded.elo} Elo · {bot.label}
+            </>
+          )}
         </p>
       )}
       <GameBoard
@@ -123,7 +152,7 @@ export default function GamePage() {
         blackName={blackName}
         initialMs={game.initialMs}
         isBot={isBot}
-        botLevel={skill}
+        botLevel={game.botLevel ?? decoded.skill}
         status={game.status}
         result={game.result}
       />

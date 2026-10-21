@@ -16,10 +16,21 @@
   --panel-hover: #f0e8da;
   --danger: #a33b2d;
   --shadow: 0 1px 0 rgba(26, 22, 18, 0.06), 0 8px 24px rgba(26, 22, 18, 0.08);
+  --shadow-lift: 0 2px 0 rgba(26, 22, 18, 0.05), 0 14px 36px rgba(26, 22, 18, 0.12);
   --board-light: #ecd5b0;
   --board-dark: #b58863;
   --header: rgba(250, 246, 238, 0.92);
   --nav-active: #3d6b4f;
+  --glow: color-mix(in srgb, var(--accent) 22%, transparent);
+
+  /* Role colors: readable on cream panels */
+  --role-member: #5c564e;
+  --role-vip30: #9a6b00;
+  --role-vip: #8a5a00;
+  --role-sta: #b42318;
+  --role-lta: #1d4ed8;
+  --role-manager: #7c3aed;
+  --role-owner: #1a1612;
 }
 
 [data-theme="dark"] {
@@ -35,10 +46,21 @@
   --panel-hover: #2a241e;
   --danger: #e07060;
   --shadow: 0 1px 0 rgba(0, 0, 0, 0.35), 0 10px 28px rgba(0, 0, 0, 0.35);
+  --shadow-lift: 0 2px 0 rgba(0, 0, 0, 0.4), 0 16px 40px rgba(0, 0, 0, 0.45);
   --board-light: #c9a87a;
   --board-dark: #7a5536;
   --header: rgba(28, 24, 20, 0.94);
   --nav-active: #6fa887;
+  --glow: color-mix(in srgb, var(--accent) 28%, transparent);
+
+  /* Role colors: bright on dark panels */
+  --role-member: #c4b8a8;
+  --role-vip30: #f0c14b;
+  --role-vip: #ffd76a;
+  --role-sta: #ff7a6a;
+  --role-lta: #6ec1ff;
+  --role-manager: #d8a6ff;
+  --role-owner: #ffe08a;
 }
 
 * {
@@ -59,7 +81,8 @@ body {
   min-height: 100%;
   color: var(--ink);
   background:
-    radial-gradient(ellipse 90% 60% at 50% -20%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 55%),
+    radial-gradient(ellipse 90% 55% at 50% -18%, var(--glow), transparent 58%),
+    radial-gradient(ellipse 50% 40% at 100% 100%, color-mix(in srgb, var(--board-dark) 14%, transparent), transparent 50%),
     var(--bg);
   font-family: var(--font-body), "Palatino Linotype", Palatino, Georgia, serif;
   -webkit-font-smoothing: antialiased;
@@ -87,7 +110,13 @@ h3 {
   background: var(--panel);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
-  border-radius: 2px;
+  border-radius: 4px;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.panel-interactive:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  box-shadow: var(--shadow-lift);
 }
 
 .btn {
@@ -103,12 +132,23 @@ h3 {
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
-  border-radius: 2px;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, opacity 140ms ease;
+  border-radius: 4px;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    opacity 140ms ease,
+    transform 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .btn:hover:not(:disabled) {
-  opacity: 0.92;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 .btn:disabled {
@@ -136,6 +176,7 @@ h3 {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
   opacity: 1;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .input {
@@ -146,12 +187,15 @@ h3 {
   padding: 0.65rem 0.75rem;
   font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
   font-size: 0.9rem;
-  border-radius: 2px;
+  border-radius: 4px;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
 
 .input:focus {
-  outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+  background: var(--panel);
 }
 
 .badge {
@@ -166,6 +210,89 @@ h3 {
   border: 1px solid currentColor;
   border-radius: 2px;
   line-height: 1.2;
+}
+
+/* Theme-aware role badges: filled tint + strong foreground */
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.18rem 0.45rem;
+  line-height: 1.15;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--role-fg) 55%, transparent);
+  color: var(--role-fg);
+  background: color-mix(in srgb, var(--role-fg) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--role-fg) 10%, transparent);
+  white-space: nowrap;
+}
+
+.role-member {
+  --role-fg: var(--role-member);
+}
+.role-vip30 {
+  --role-fg: var(--role-vip30);
+}
+.role-vip {
+  --role-fg: var(--role-vip);
+}
+.role-sta {
+  --role-fg: var(--role-sta);
+}
+.role-lta {
+  --role-fg: var(--role-lta);
+}
+.role-manager {
+  --role-fg: var(--role-manager);
+}
+.role-owner {
+  --role-fg: var(--role-owner);
+  background: color-mix(in srgb, var(--role-fg) 22%, transparent);
+  border-color: color-mix(in srgb, var(--role-fg) 65%, transparent);
+}
+
+.user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid color-mix(in srgb, var(--role-fg, var(--line)) 55%, var(--line));
+  background: var(--bg-raised);
+}
+
+.user-avatar--fallback {
+  font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  color: var(--role-fg, var(--ink));
+  background: color-mix(in srgb, var(--role-fg, var(--accent)) 18%, var(--panel));
+}
+
+.user-avatar--member {
+  --role-fg: var(--role-member);
+}
+.user-avatar--vip30 {
+  --role-fg: var(--role-vip30);
+}
+.user-avatar--vip {
+  --role-fg: var(--role-vip);
+}
+.user-avatar--sta {
+  --role-fg: var(--role-sta);
+}
+.user-avatar--lta {
+  --role-fg: var(--role-lta);
+}
+.user-avatar--manager {
+  --role-fg: var(--role-manager);
+}
+.user-avatar--owner {
+  --role-fg: var(--role-owner);
 }
 
 .muted {
@@ -189,7 +316,7 @@ h3 {
   gap: 0.75rem;
   padding: 0.85rem 1rem;
   border-bottom: 1px solid var(--line);
-  transition: background 120ms ease;
+  transition: background 120ms ease, padding-left 140ms ease;
 }
 
 .table-row:last-child {
@@ -198,6 +325,7 @@ h3 {
 
 .table-row:hover {
   background: var(--panel-hover);
+  padding-left: 1.15rem;
 }
 
 @keyframes pulse-soft {
@@ -214,6 +342,293 @@ h3 {
   animation: pulse-soft 1.4s ease-in-out infinite;
 }
 
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rise-in {
+  animation: rise-in 320ms ease both;
+}
+
+.rise-in-delay-1 {
+  animation-delay: 40ms;
+}
+.rise-in-delay-2 {
+  animation-delay: 80ms;
+}
+.rise-in-delay-3 {
+  animation-delay: 120ms;
+}
+
+/* Forum */
+.forum-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.forum-hero h1 {
+  margin: 0;
+  font-size: clamp(1.85rem, 3vw, 2.4rem);
+}
+
+.forum-kicker {
+  font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 0.35rem;
+}
+
+.forum-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.forum-cat {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1.05rem 1.15rem;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.forum-cat:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  box-shadow: var(--shadow-lift);
+  background: color-mix(in srgb, var(--panel-hover) 70%, var(--panel));
+}
+
+.forum-cat:active {
+  transform: translateY(0);
+}
+
+.forum-cat-icon {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 0.95rem;
+  letter-spacing: -0.02em;
+  color: var(--accent-ink);
+  background: linear-gradient(145deg, var(--accent), color-mix(in srgb, var(--accent) 70%, var(--board-dark)));
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.forum-cat h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.forum-cat-meta {
+  text-align: right;
+  font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+}
+
+.forum-stat {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.forum-stat-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.forum-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: var(--bg-raised);
+}
+
+.forum-chip--pin {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.forum-chip--lock {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.forum-thread {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem 1rem;
+  align-items: center;
+  padding: 0.95rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+  transition: background 140ms ease, padding-left 140ms ease;
+}
+
+.forum-thread:last-child {
+  border-bottom: none;
+}
+
+.forum-thread:hover {
+  background: var(--panel-hover);
+  padding-left: 1.3rem;
+}
+
+.forum-thread-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.forum-thread-meta {
+  margin: 0.35rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.forum-replies {
+  text-align: center;
+  min-width: 3.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+}
+
+.forum-replies strong {
+  display: block;
+  font-size: 1.05rem;
+  line-height: 1.1;
+}
+
+.forum-replies span {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.forum-composer {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 280ms ease, opacity 220ms ease, margin 220ms ease;
+  margin-bottom: 0;
+}
+
+.forum-composer.open {
+  max-height: 420px;
+  opacity: 1;
+  margin-bottom: 1.25rem;
+}
+
+.forum-post {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.85rem 1rem;
+  padding: 1.1rem 1.15rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.forum-post::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: color-mix(in srgb, var(--post-accent, var(--accent)) 85%, transparent);
+  opacity: 0.85;
+}
+
+.forum-post:hover {
+  border-color: color-mix(in srgb, var(--post-accent, var(--accent)) 35%, var(--line));
+}
+
+.forum-post-body {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.65;
+  font-size: 1.02rem;
+}
+
+.forum-empty {
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+}
+
+.forum-empty h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1.25rem;
+}
+
+.nav-link {
+  position: relative;
+  padding: 0.35rem 0.55rem;
+  border-radius: 4px;
+  transition: color 140ms ease, background 140ms ease;
+}
+
+.nav-link:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--panel-hover) 80%, transparent);
+}
+
+.nav-link.active {
+  color: var(--nav-active);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 @media (max-width: 720px) {
   .shell {
     width: min(1100px, calc(100% - 1rem));
@@ -221,5 +636,49 @@ h3 {
 
   .btn {
     padding: 0.55rem 0.85rem;
+  }
+
+  .forum-cat {
+    grid-template-columns: auto 1fr;
+  }
+
+  .forum-cat-meta {
+    grid-column: 2;
+    text-align: left;
+  }
+
+  .forum-thread {
+    grid-template-columns: 1fr;
+  }
+
+  .forum-replies {
+    justify-self: start;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    min-width: 0;
+  }
+
+  .forum-replies strong {
+    display: inline;
+    font-size: 0.9rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .panel,
+  .forum-cat,
+  .forum-thread,
+  .table-row,
+  .forum-composer,
+  .rise-in {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  .btn:hover:not(:disabled),
+  .forum-cat:hover {
+    transform: none;
   }
 }

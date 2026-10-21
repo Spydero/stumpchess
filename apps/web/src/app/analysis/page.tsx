@@ -9,38 +9,33 @@ import Link from "next/link";
 import { useSession } from "@/lib/auth-client";
 import { apiFetch } from "@/lib/api";
 import {
+  analyzeFenBatch,
+  bestGapCp,
   createStockfish,
   formatEval,
   toWhiteEval,
   uciToMove,
-  type EngineInfo,
 } from "@/lib/stockfish";
 import { CLASS_META, classifyMove, type ClassLabel } from "@/lib/classify";
 import { userHasVip } from "@/lib/roles";
 import { EvalBar } from "@/components/EvalBar";
 import { MoveBadge } from "@/components/MoveBadge";
 import {
+  ClassificationSquare,
+  ClassificationSquareProvider,
   classificationTint,
-  useClassificationSquare,
 } from "@/components/ClassificationMarker";
+import {
+  loadLocalAnalysis,
+  parseStoredAnalysis,
+  saveLocalAnalysis,
+  serializeAnalysis,
+  type StoredAnalyzedMove,
+} from "@/lib/analysis-cache";
 
-type AnalyzedMove = {
-  san: string;
-  fenBefore: string;
-  fenAfter: string;
-  from: Square;
-  to: Square;
-  classification: ClassLabel;
-  bestMove?: string;
-  bestSan?: string;
-  cpl: number;
-  evalAfter: number;
-  evalBefore: number;
-  color: "w" | "b";
-  ply: number;
-};
+type AnalyzedMove = StoredAnalyzedMove;
 
-const DEPTH_OPTIONS = [18, 20, 22, 24, 26, 28, 30] as const;
+const DEPTH_OPTIONS = [16, 18, 20, 22, 24, 26, 28] as const;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -68,7 +63,7 @@ function parsePgnMoves(raw: string) {
   try {
     chess.loadPgn(text, { strict: false } as Parameters<Chess["loadPgn"]>[1]);
   } catch {
-    // ignore — try fallback below
+    // ignore; try fallback below
   }
   let history = chess.history({ verbose: true });
   if (history.length) return { history };
@@ -112,9 +107,10 @@ function AnalysisPageInner() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const [liveDepth, setLiveDepth] = useState(0);
-  const [depth, setDepth] = useState<(typeof DEPTH_OPTIONS)[number]>(22);
+  const [depth, setDepth] = useState<(typeof DEPTH_OPTIONS)[number]>(20);
   const [playing, setPlaying] = useState(false);
-  const [autoReview, setAutoReview] = useState(false);
+  const [gameId, setGameId] = useState<string | null>(null);
+  const [fromCache, setFromCache] = useState(false);
   const engineRef = useRef<ReturnType<typeof createStockfish> | null>(null);
   const cancelRef = useRef(false);
   const playTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -123,6 +119,12 @@ function AnalysisPageInner() {
   const idxRef = useRef(-1);
   const busyRef = useRef(false);
   const boardFocusRef = useRef<HTMLDivElement | null>(null);
+  const loadedCacheRef = useRef(false);
+  /** Live board follow during Stockfish (pause stops the board, not the engine). */
+  const followLiveRef = useRef(false);
+  const followTargetRef = useRef(-1);
+  const followLoopRef = useRef(false);
+  const LIVE_STEP_MS = 750;
 
   useEffect(() => {
     movesRef.current = moves;
@@ -160,15 +162,42 @@ function AnalysisPageInner() {
     }
   }, []);
 
-  // Load PGN from a saved game (?gameId=...)
+  // Load PGN + cached analysis from a saved game (?gameId=...)
   useEffect(() => {
-    const gameId = searchParams.get("gameId");
-    if (!gameId || !user) return;
-    apiFetch(`/api/games/${gameId}`)
-      .then((g: { pgn?: string }) => {
-        if (g.pgn?.trim()) setPgn(g.pgn);
-        else setProgress("That game has no saved moves to analyze.");
-      })
+    const id = searchParams.get("gameId");
+    if (!id || !user) return;
+    setGameId(id);
+    loadedCacheRef.current = false;
+    apiFetch(`/api/games/${id}`)
+      .then(
+        (g: {
+          pgn?: string;
+          analysisJson?: string | null;
+          analysisDepth?: number | null;
+        }) => {
+          if (g.pgn?.trim()) setPgn(g.pgn);
+          else {
+            setProgress("That game has no saved moves to analyze.");
+            return;
+          }
+          const cached = parseStoredAnalysis(g.analysisJson);
+          if (cached) {
+            setMoves(cached.moves);
+            movesRef.current = cached.moves;
+            setIdx(-1);
+            idxRef.current = -1;
+            if (DEPTH_OPTIONS.includes(cached.depth as (typeof DEPTH_OPTIONS)[number])) {
+              setDepth(cached.depth as (typeof DEPTH_OPTIONS)[number]);
+            }
+            setFromCache(true);
+            loadedCacheRef.current = true;
+            setProgress(
+              `Loaded saved review (depth ${cached.depth}).`
+            );
+            boardFocusRef.current?.focus({ preventScroll: true });
+          }
+        }
+      )
       .catch(() => setProgress("Could not load that game."));
   }, [searchParams, user]);
 
@@ -181,39 +210,89 @@ function AnalysisPageInner() {
 
   const stopPlayback = useCallback(() => {
     playingRef.current = false;
+    followLiveRef.current = false;
     setPlaying(false);
-    setAutoReview(false);
     if (playTimer.current) {
       clearTimeout(playTimer.current);
       playTimer.current = null;
     }
   }, []);
 
-  const runAutoReview = useCallback(
-    async (total: number) => {
-      stopPlayback();
-      setAutoReview(true);
-      playingRef.current = true;
-      setPlaying(true);
-      setIdx(-1);
-      idxRef.current = -1;
-      await sleep(400);
-      for (let i = 0; i < total; i++) {
-        if (cancelRef.current || !playingRef.current) break;
-        setIdx(i);
-        idxRef.current = i;
-        await sleep(650);
+  const runLiveFollowLoop = useCallback(async () => {
+    if (followLoopRef.current) return;
+    followLoopRef.current = true;
+    try {
+      while (followLiveRef.current && busyRef.current) {
+        const target = followTargetRef.current;
+        const cur = idxRef.current;
+        if (cur >= target) break;
+        const next = cur + 1;
+        setIdx(next);
+        idxRef.current = next;
+        await sleep(LIVE_STEP_MS);
       }
-      await sleep(400);
-      setIdx(-1);
-      idxRef.current = -1;
-      stopPlayback();
-      setProgress("Review ready. Use Back / Forward to step through.");
+    } finally {
+      followLoopRef.current = false;
+      // Catch up if more moves landed while we were sleeping
+      if (
+        followLiveRef.current &&
+        busyRef.current &&
+        idxRef.current < followTargetRef.current
+      ) {
+        void runLiveFollowLoop();
+      }
+    }
+  }, [LIVE_STEP_MS]);
+
+  const queueLiveFollow = useCallback(
+    (moveIndex: number) => {
+      followTargetRef.current = Math.max(followTargetRef.current, moveIndex);
+      if (followLiveRef.current) void runLiveFollowLoop();
     },
-    [stopPlayback]
+    [runLiveFollowLoop]
   );
 
-  async function runAnalysis() {
+  async function persistAnalysis(analyzed: AnalyzedMove[], usedDepth: number) {
+    const payload = serializeAnalysis(analyzed, usedDepth);
+    if (gameId && user) {
+      try {
+        await apiFetch(`/api/games/${gameId}/analysis`, {
+          method: "PUT",
+          userId: user.id,
+          body: JSON.stringify({ analysisJson: JSON.stringify(payload), depth: usedDepth }),
+        });
+        setFromCache(true);
+      } catch {
+        saveLocalAnalysis(pgn, payload);
+      }
+    } else {
+      saveLocalAnalysis(pgn, payload);
+      setFromCache(true);
+    }
+  }
+
+  async function runAnalysis(force = false) {
+    // Reuse saved review unless user explicitly re-analyzes
+    if (!force && moves.length > 0 && fromCache) {
+      setProgress("Already have a saved review. Click Re-analyze to run Stockfish again.");
+      return;
+    }
+    if (!force && !moves.length && pgn.trim()) {
+      const local = loadLocalAnalysis(pgn);
+      if (local && !gameId) {
+        setMoves(local.moves);
+        movesRef.current = local.moves;
+        setFromCache(true);
+        if (DEPTH_OPTIONS.includes(local.depth as (typeof DEPTH_OPTIONS)[number])) {
+          setDepth(local.depth as (typeof DEPTH_OPTIONS)[number]);
+        }
+        setProgress(
+          `Loaded saved review (depth ${local.depth}).`
+        );
+        return;
+      }
+    }
+
     const parsed = parsePgnMoves(pgn);
     if ("error" in parsed && parsed.error) {
       setProgress(parsed.error);
@@ -224,125 +303,155 @@ function AnalysisPageInner() {
     cancelRef.current = false;
     stopPlayback();
     setBusy(true);
+    busyRef.current = true;
+    setFromCache(false);
     setMoves([]);
     movesRef.current = [];
     setIdx(-1);
+    idxRef.current = -1;
+    followTargetRef.current = -1;
+    followLiveRef.current = true;
+    playingRef.current = true;
+    setPlaying(true);
     setLiveDepth(0);
-    setProgress("Starting Stockfish…");
+    setProgress("Stockfish 19 Lite WASM · starting…");
     try {
-      if (!engineRef.current) engineRef.current = createStockfish();
-      await engineRef.current.configureAnalysis(2);
-
       const chess = new Chess();
-      const analyzed: AnalyzedMove[] = [];
-      // One search per ply (reuse as next "before"). Cap wall-clock so deep depth stays usable.
-      const movetime = Math.min(2200, Math.max(300, 120 + depth * 55));
+      const fens: string[] = [chess.fen()];
+      const moveMeta: Array<{
+        san: string;
+        from: Square;
+        to: Square;
+        color: "w" | "b";
+        fenBefore: string;
+        fenAfter: string;
+        playedUci: string;
+        captureOrCheck: boolean;
+      }> = [];
 
-      setProgress("Analyzing starting position…");
-      let infoBefore: EngineInfo = await engineRef.current.analyze(chess.fen(), {
+      for (const mv of history) {
+        const fenBefore = chess.fen();
+        const playedUci = `${mv.from}${mv.to}${mv.promotion || ""}`;
+        chess.move(mv);
+        const fenAfter = chess.fen();
+        fens.push(fenAfter);
+        moveMeta.push({
+          san: mv.san,
+          from: mv.from as Square,
+          to: mv.to as Square,
+          color: mv.color,
+          fenBefore,
+          fenAfter,
+          playedUci,
+          captureOrCheck: Boolean(mv.captured || mv.san.includes("+") || mv.san.includes("#")),
+        });
+      }
+
+      const analyzed: AnalyzedMove[] = [];
+      const t0 = performance.now();
+      setProgress(`Stockfish 19 Lite WASM · ${fens.length} positions · 4 workers · d${depth}`);
+
+      await analyzeFenBatch(fens, {
         depth,
-        movetime,
-        onUpdate: (info) => {
-          if (info.depth) setLiveDepth(info.depth);
+        concurrency: 4,
+        shouldCancel: () => cancelRef.current,
+        onProgress: (done, total, lastDepth) => {
+          if (lastDepth) setLiveDepth(lastDepth);
+          const sec = ((performance.now() - t0) / 1000).toFixed(1);
+          const effective = done > 0 ? (Number(sec) / done).toFixed(1) : "-";
+          setProgress(
+            `Stockfish 19 Lite WASM · ${done}/${total} · d${lastDepth || depth} · ${sec}s wall · ~${effective}s/pos`
+          );
+        },
+        onPairReady: (i, before, after) => {
+          const meta = moveMeta[i];
+          if (!meta) return;
+          const whiteEvalBefore = toWhiteEval(meta.color, before.scoreCp, before.mate);
+          const turnAfter = meta.color === "w" ? "b" : "w";
+          const whiteEvalAfter = toWhiteEval(turnAfter, after.scoreCp, after.mate);
+
+          let loss =
+            meta.color === "w"
+              ? Math.max(0, whiteEvalBefore - whiteEvalAfter)
+              : Math.max(0, whiteEvalAfter - whiteEvalBefore);
+          if (loss < 8) loss = 0;
+
+          const bestUci = before.bestMove || before.pvs[0]?.uci;
+          const isBest = (!!bestUci && meta.playedUci === bestUci) || loss <= 5;
+          const gained =
+            meta.color === "w"
+              ? Math.max(0, whiteEvalAfter - whiteEvalBefore)
+              : Math.max(0, whiteEvalBefore - whiteEvalAfter);
+          const wasWinning =
+            (meta.color === "w" && whiteEvalBefore > 400) ||
+            (meta.color === "b" && whiteEvalBefore < -400);
+          const nowBad =
+            (meta.color === "w" && whiteEvalAfter < 50) ||
+            (meta.color === "b" && whiteEvalAfter > -50);
+
+          analyzed.push({
+            san: meta.san,
+            fenBefore: meta.fenBefore,
+            fenAfter: meta.fenAfter,
+            from: meta.from,
+            to: meta.to,
+            classification: classifyMove({
+              cpl: loss,
+              isBest,
+              bestGap: bestGapCp(before),
+              gained,
+              missedWin: wasWinning && nowBad && loss >= 100,
+              isCaptureOrCheck: meta.captureOrCheck,
+            }),
+            bestMove: bestUci,
+            bestSan: bestSanFromUci(meta.fenBefore, bestUci),
+            cpl: Math.round(loss),
+            evalAfter: whiteEvalAfter,
+            evalBefore: whiteEvalBefore,
+            color: meta.color,
+            ply: i + 1,
+          });
+
+          // Move list updates immediately; board advances one ply at a time
+          setMoves([...analyzed]);
+          movesRef.current = [...analyzed];
+          queueLiveFollow(analyzed.length - 1);
         },
       });
 
-      for (let i = 0; i < history.length; i++) {
-        if (cancelRef.current) break;
-        setProgress(`Analyzing move ${i + 1} of ${history.length}…`);
-        const fenBefore = chess.fen();
-        const turn = chess.turn();
-
-        const whiteEvalBefore = toWhiteEval(turn, infoBefore.scoreCp, infoBefore.mate);
-        const moverBest = turn === "w" ? whiteEvalBefore : -whiteEvalBefore;
-        const moverSecondRaw = toWhiteEval(turn, infoBefore.secondScoreCp, infoBefore.secondMate);
-        const moverSecond = turn === "w" ? moverSecondRaw : -moverSecondRaw;
-        const gapForMover = Math.max(0, moverBest - moverSecond);
-
-        const mv = history[i];
-        const playedUci = `${mv.from}${mv.to}${mv.promotion || ""}`;
-        const bestUci = infoBefore.bestMove;
-        const isBest = !!bestUci && playedUci === bestUci;
-
-        chess.move(mv);
-
-        // Next position search — also becomes "before" for the following move
-        const infoAfter: EngineInfo = await engineRef.current.analyze(chess.fen(), {
-          depth,
-          movetime,
-          onUpdate: (info) => {
-            if (info.depth) setLiveDepth(info.depth);
-          },
-        });
-        const whiteEvalAfter = toWhiteEval(chess.turn(), infoAfter.scoreCp, infoAfter.mate);
-
-        const loss =
-          mv.color === "w"
-            ? Math.max(0, whiteEvalBefore - whiteEvalAfter)
-            : Math.max(0, whiteEvalAfter - whiteEvalBefore);
-
-        const gained =
-          mv.color === "w"
-            ? Math.max(0, whiteEvalAfter - whiteEvalBefore)
-            : Math.max(0, whiteEvalBefore - whiteEvalAfter);
-
-        const wasWinning =
-          (mv.color === "w" && whiteEvalBefore > 300) ||
-          (mv.color === "b" && whiteEvalBefore < -300);
-        const nowBad =
-          (mv.color === "w" && whiteEvalAfter < 50) ||
-          (mv.color === "b" && whiteEvalAfter > -50);
-        const missedWin = wasWinning && nowBad && loss >= 80;
-
-        const classification = classifyMove({
-          cpl: isBest ? Math.min(loss, 8) : loss,
-          isBest,
-          bestGap: gapForMover,
-          gained,
-          missedWin,
-          ply: i + 1,
-          isCaptureOrCheck: Boolean(mv.captured || mv.san.includes("+") || mv.san.includes("#")),
-        });
-
-        analyzed.push({
-          san: mv.san,
-          fenBefore,
-          fenAfter: chess.fen(),
-          from: mv.from as Square,
-          to: mv.to as Square,
-          classification,
-          bestMove: bestUci,
-          bestSan: bestSanFromUci(fenBefore, bestUci),
-          cpl: Math.round(isBest ? Math.min(loss, 8) : loss),
-          evalAfter: whiteEvalAfter,
-          evalBefore: whiteEvalBefore,
-          color: mv.color,
-          ply: i + 1,
-        });
-
-        infoBefore = infoAfter;
-        setMoves([...analyzed]);
-        movesRef.current = analyzed;
-        setIdx(i);
-        idxRef.current = i;
+      if (!analyzed.length) {
+        setBusy(false);
+        busyRef.current = false;
+        stopPlayback();
+        setProgress(cancelRef.current ? "Stopped." : "No moves analyzed.");
+        return;
       }
 
-      setMoves(analyzed);
-      movesRef.current = analyzed;
       setBusy(false);
+      busyRef.current = false;
+      followLiveRef.current = false;
+      playingRef.current = false;
+      setPlaying(false);
 
       if (!cancelRef.current && analyzed.length) {
-        setProgress("Playing review…");
+        await persistAnalysis(analyzed, depth);
+        setProgress(
+          "Saved. Use Play or ← → to step through. Re-analyze to run Stockfish again."
+        );
         boardFocusRef.current?.focus({ preventScroll: true });
-        await runAutoReview(analyzed.length);
       } else {
-        setProgress(analyzed.length ? "Stopped. You can step through finished moves." : "Stopped.");
-        setIdx(-1);
+        if (analyzed.length) await persistAnalysis(analyzed, depth);
+        setProgress(
+          analyzed.length
+            ? "Stopped. Partial review saved."
+            : "Stopped."
+        );
         boardFocusRef.current?.focus({ preventScroll: true });
       }
     } catch (e) {
       setProgress(e instanceof Error ? e.message : "Failed to analyze PGN");
       setBusy(false);
+      busyRef.current = false;
       stopPlayback();
     }
   }
@@ -350,27 +459,47 @@ function AnalysisPageInner() {
   function stopAnalysis() {
     cancelRef.current = true;
     setBusy(false);
+    busyRef.current = false;
     stopPlayback();
     setProgress("Stopped. Use Forward to step through any moves already analyzed.");
   }
 
-  const go = useCallback(
-    (delta: number) => {
-      stopPlayback();
-      const list = movesRef.current;
-      if (!list.length || busyRef.current) return;
-      setIdx((i) => {
-        const next = Math.max(-1, Math.min(list.length - 1, i + delta));
-        idxRef.current = next;
-        return next;
-      });
-    },
-    [stopPlayback]
-  );
+  const go = useCallback((delta: number) => {
+    followLiveRef.current = false;
+    playingRef.current = false;
+    setPlaying(false);
+    if (playTimer.current) {
+      clearTimeout(playTimer.current);
+      playTimer.current = null;
+    }
+    const list = movesRef.current;
+    if (!list.length) return;
+    setIdx((i) => {
+      const next = Math.max(-1, Math.min(list.length - 1, i + delta));
+      idxRef.current = next;
+      return next;
+    });
+  }, []);
 
   const togglePlay = useCallback(() => {
     const list = movesRef.current;
-    if (!list.length || busyRef.current) return;
+    if (!list.length) return;
+
+    // During analysis: Play/Pause only controls live board follow
+    if (busyRef.current) {
+      if (followLiveRef.current) {
+        followLiveRef.current = false;
+        playingRef.current = false;
+        setPlaying(false);
+        return;
+      }
+      followLiveRef.current = true;
+      playingRef.current = true;
+      setPlaying(true);
+      void runLiveFollowLoop();
+      return;
+    }
+
     if (playingRef.current) {
       stopPlayback();
       return;
@@ -387,7 +516,7 @@ function AnalysisPageInner() {
       const next = cur + 1;
       idxRef.current = next;
       setIdx(next);
-      playTimer.current = setTimeout(step, 650);
+      playTimer.current = setTimeout(step, LIVE_STEP_MS);
     };
     if (idxRef.current >= list.length - 1) {
       idxRef.current = -1;
@@ -396,15 +525,14 @@ function AnalysisPageInner() {
     } else {
       playTimer.current = setTimeout(step, 50);
     }
-  }, [stopPlayback]);
+  }, [LIVE_STEP_MS, runLiveFollowLoop, stopPlayback]);
 
-  // ← / → step through the review; ignore when typing in inputs
+  // ← / → step through the review; Space pauses live follow during analysis
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if ((e.target as HTMLElement | null)?.isContentEditable) return;
-      if (busyRef.current) return;
       if (!movesRef.current.length) return;
 
       if (e.key === "ArrowLeft") {
@@ -415,12 +543,16 @@ function AnalysisPageInner() {
         go(1);
       } else if (e.key === "Home") {
         e.preventDefault();
-        stopPlayback();
+        followLiveRef.current = false;
+        playingRef.current = false;
+        setPlaying(false);
         setIdx(-1);
         idxRef.current = -1;
       } else if (e.key === "End") {
         e.preventDefault();
-        stopPlayback();
+        followLiveRef.current = false;
+        playingRef.current = false;
+        setPlaying(false);
         const last = movesRef.current.length - 1;
         setIdx(last);
         idxRef.current = last;
@@ -431,7 +563,7 @@ function AnalysisPageInner() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, togglePlay, stopPlayback]);
+  }, [go, togglePlay]);
 
   const position = useMemo(() => {
     if (!moves.length || idx < 0) return "start";
@@ -467,8 +599,6 @@ function AnalysisPageInner() {
     };
   }, [current]);
 
-  const customSquare = useClassificationSquare(current?.to, current?.classification);
-
   if (isPending) return <p className="pulse-soft ui muted">Loading…</p>;
   if (!user) {
     return (
@@ -487,7 +617,7 @@ function AnalysisPageInner() {
       <div className="panel p-6 max-w-lg">
         <h1 className="text-3xl mb-3">Game Review</h1>
         <p className="muted ui">
-          Deep Stockfish analysis is a VIP feature. Ask an admin to enable VIP on your account.
+          Analysis needs VIP. Ask an admin.
         </p>
       </div>
     );
@@ -516,7 +646,7 @@ function AnalysisPageInner() {
       <section>
         <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
           <h1 className="text-3xl m-0">Game Review</h1>
-          <p className="ui text-xs muted m-0">Stockfish · depth {depth}</p>
+          <p className="ui text-xs muted m-0">Stockfish 19 Lite WASM · depth {depth} · local</p>
         </div>
 
         <div className="flex gap-3 items-stretch max-w-[min(100%,560px)]">
@@ -528,15 +658,20 @@ function AnalysisPageInner() {
             onClick={() => boardFocusRef.current?.focus()}
             aria-label="Analysis board. Use left and right arrow keys to step through moves."
           >
-            <Chessboard
-              position={position}
-              arePiecesDraggable={false}
-              customDarkSquareStyle={{ backgroundColor: "var(--board-dark)" }}
-              customLightSquareStyle={{ backgroundColor: "var(--board-light)" }}
-              customArrows={arrows}
-              customSquareStyles={lastMoveSquares}
-              customSquare={customSquare}
-            />
+            <ClassificationSquareProvider
+              target={current?.to}
+              label={current?.classification}
+            >
+              <Chessboard
+                position={position}
+                arePiecesDraggable={false}
+                customDarkSquareStyle={{ backgroundColor: "var(--board-dark)" }}
+                customLightSquareStyle={{ backgroundColor: "var(--board-light)" }}
+                customArrows={arrows}
+                customSquareStyles={lastMoveSquares}
+                customSquare={ClassificationSquare}
+              />
+            </ClassificationSquareProvider>
           </div>
         </div>
 
@@ -564,7 +699,7 @@ function AnalysisPageInner() {
                 current.classification !== "Excellent" &&
                 current.bestSan && (
                   <p className="ui text-sm m-0">
-                    <span className="muted">Best was </span>
+                    <span className="muted">Best: </span>
                     <strong style={{ color: CLASS_META.Best.color }}>{current.bestSan}</strong>
                     <span className="muted"> ({current.cpl} cp loss)</span>
                   </p>
@@ -573,7 +708,7 @@ function AnalysisPageInner() {
                 current.classification === "Brilliant" ||
                 current.classification === "Great" ||
                 current.classification === "Excellent") && (
-                <p className="ui text-sm muted m-0">Engine agrees with this move.</p>
+                <p className="ui text-sm muted m-0">Best move.</p>
               )}
             </div>
           ) : (
@@ -590,37 +725,41 @@ function AnalysisPageInner() {
                 type="button"
                 className="btn btn-ghost"
                 onClick={() => {
-                  stopPlayback();
+                  followLiveRef.current = false;
+                  playingRef.current = false;
+                  setPlaying(false);
                   setIdx(-1);
                   idxRef.current = -1;
                 }}
-                disabled={busy}
               >
                 Start
               </button>
-              <button type="button" className="btn btn-ghost" onClick={() => go(-1)} disabled={busy}>
+              <button type="button" className="btn btn-ghost" onClick={() => go(-1)}>
                 Back
               </button>
-              <button type="button" className="btn btn-accent" onClick={togglePlay} disabled={busy}>
-                {playing || autoReview ? "Pause" : "Play"}
+              <button type="button" className="btn btn-accent" onClick={togglePlay}>
+                {playing ? "Pause" : "Play"}
               </button>
-              <button type="button" className="btn btn-ghost" onClick={() => go(1)} disabled={busy}>
+              <button type="button" className="btn btn-ghost" onClick={() => go(1)}>
                 Forward
               </button>
               <button
                 type="button"
                 className="btn btn-ghost"
                 onClick={() => {
-                  stopPlayback();
+                  followLiveRef.current = false;
+                  playingRef.current = false;
+                  setPlaying(false);
                   const last = movesRef.current.length - 1;
                   setIdx(last);
                   idxRef.current = last;
                 }}
-                disabled={busy}
               >
                 End
               </button>
-              <span className="ui text-xs muted self-center ml-1">← → keys · Space play</span>
+              <span className="ui text-xs muted self-center ml-1">
+                ← → · Space {busy ? "pause live" : "play"}
+              </span>
             </div>
           )}
         </div>
@@ -632,7 +771,15 @@ function AnalysisPageInner() {
             className="input min-h-36 ui text-xs"
             placeholder={"Paste PGN, e.g.\n1. e4 e5 2. Nf3 Nc6 3. Bb5 a6"}
             value={pgn}
-            onChange={(e) => setPgn(e.target.value)}
+            onChange={(e) => {
+              setPgn(e.target.value);
+              if (moves.length) {
+                setMoves([]);
+                movesRef.current = [];
+                setFromCache(false);
+                setIdx(-1);
+              }
+            }}
             disabled={busy}
           />
           <label className="ui text-sm muted block">Analysis depth</label>
@@ -645,19 +792,47 @@ function AnalysisPageInner() {
             {DEPTH_OPTIONS.map((d) => (
               <option key={d} value={d}>
                 Depth {d}
-                {d <= 20 ? " (fast)" : d <= 22 ? " (recommended)" : d <= 26 ? " (deeper)" : " (slow)"}
+                {d <= 18 ? " (fast)" : d <= 22 ? " (recommended)" : " (slower)"}
               </option>
             ))}
           </select>
           {!busy ? (
-            <button
-              type="button"
-              className="btn btn-accent w-full"
-              disabled={!pgn.trim()}
-              onClick={runAnalysis}
-            >
-              Run deep analysis
-            </button>
+            <div className="space-y-2">
+              {moves.length > 0 ? (
+                <>
+                  <p className="ui text-xs muted m-0">
+                    {fromCache
+                      ? "Saved review ready."
+                      : "Review ready."}
+                  </p>
+                  {gameId && (
+                    <Link
+                      href={`/practice/mistakes?gameId=${gameId}`}
+                      className="btn btn-accent w-full"
+                    >
+                      Practice mistakes
+                    </Link>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-ghost w-full"
+                    disabled={!pgn.trim()}
+                    onClick={() => runAnalysis(true)}
+                  >
+                    Re-analyze with Stockfish
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-accent w-full"
+                  disabled={!pgn.trim()}
+                  onClick={() => runAnalysis(false)}
+                >
+                  Run deep analysis
+                </button>
+              )}
+            </div>
           ) : (
             <button type="button" className="btn btn-ghost w-full" onClick={stopAnalysis}>
               Stop
@@ -697,12 +872,14 @@ function AnalysisPageInner() {
                     row.wi === idx ? "bg-[var(--panel-hover)]" : ""
                   }`}
                   onClick={() => {
-                    if (row.wi === undefined || busy) return;
-                    stopPlayback();
+                    if (row.wi === undefined) return;
+                    followLiveRef.current = false;
+                    playingRef.current = false;
+                    setPlaying(false);
                     setIdx(row.wi);
                     idxRef.current = row.wi;
                   }}
-                  disabled={row.wi === undefined || busy}
+                  disabled={row.wi === undefined}
                 >
                   {row.w ? (
                     <span>
@@ -725,12 +902,14 @@ function AnalysisPageInner() {
                     row.bi === idx ? "bg-[var(--panel-hover)]" : ""
                   }`}
                   onClick={() => {
-                    if (row.bi === undefined || busy) return;
-                    stopPlayback();
+                    if (row.bi === undefined) return;
+                    followLiveRef.current = false;
+                    playingRef.current = false;
+                    setPlaying(false);
                     setIdx(row.bi);
                     idxRef.current = row.bi;
                   }}
-                  disabled={row.bi === undefined || busy}
+                  disabled={row.bi === undefined}
                 >
                   {row.b ? (
                     <span>
@@ -762,7 +941,6 @@ function AnalysisPageInner() {
                 "Best",
                 "Excellent",
                 "Good",
-                "Book",
                 "Inaccuracy",
                 "Mistake",
                 "Miss",

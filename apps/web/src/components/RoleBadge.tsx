@@ -1,22 +1,47 @@
-import { roleColor, roleLabel } from "@/lib/roles";
+import { roleLabel } from "@/lib/roles";
+
+function roleSlug(role: string) {
+  switch (role) {
+    case "VIP_30":
+      return "vip30";
+    case "VIP_PERM":
+      return "vip";
+    case "STA":
+      return "sta";
+    case "LTA":
+      return "lta";
+    case "MANAGER":
+      return "manager";
+    case "OWNER":
+      return "owner";
+    default:
+      return "member";
+  }
+}
+
+function shortLabel(role: string) {
+  switch (role) {
+    case "OWNER":
+      return "Owner";
+    case "STA":
+      return "STA";
+    case "LTA":
+      return "LTA";
+    case "MANAGER":
+      return "Manager";
+    case "VIP_30":
+      return "VIP 30d";
+    case "VIP_PERM":
+      return "VIP";
+    default:
+      return roleLabel(role);
+  }
+}
 
 export function RoleBadge({ role }: { role: string }) {
-  const color = roleColor(role);
-  const label =
-    role === "OWNER"
-      ? "Owner"
-      : role === "STA"
-        ? "STA"
-        : role === "LTA"
-          ? "LTA"
-          : role === "VIP_30"
-            ? "VIP 30d"
-            : role === "VIP_PERM"
-              ? "VIP"
-              : roleLabel(role);
   return (
-    <span className="badge" style={{ color }} title={roleLabel(role)}>
-      {label}
+    <span className={`role-badge role-${roleSlug(role)}`} title={roleLabel(role)}>
+      {shortLabel(role)}
     </span>
   );
 }

@@ -4,7 +4,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Chess, type Square } from "chess.js";
 import { Chessboard } from "react-chessboard";
-import { botEloFromSkill, botPresetBySkill, botThinkMs, hasVipAccess, type Role } from "@chess/shared";
+import {
+  botEloFromSkill,
+  botPresetBySkill,
+  decodeBotLevel,
+  engineThinkMs,
+  formatEngineElo,
+  hasVipAccess,
+  isEngineFullStrength,
+  personalityThinkMs,
+  type Role,
+} from "@chess/shared";
 import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { createStockfish, uciToMove } from "@/lib/stockfish";
@@ -43,9 +53,11 @@ export function GameBoard(props: Props) {
   const [clocks, setClocks] = useState({ w: props.initialMs, b: props.initialMs });
   const botBusy = useRef(false);
 
-  const skill = props.botLevel ?? 5;
+  const decoded = decodeBotLevel(props.botLevel ?? 5);
+  const skill = decoded.skill;
   const botMeta = botPresetBySkill(skill);
-  const botElo = botEloFromSkill(skill);
+  const botElo = decoded.kind === "engine" ? decoded.elo : botEloFromSkill(skill);
+  const engineMode = decoded.kind === "engine";
 
   const myColor: "w" | "b" | null =
     props.userId === props.whiteId ? "w" : props.userId === props.blackId ? "b" : null;
@@ -100,13 +112,19 @@ export function GameBoard(props: Props) {
     botBusy.current = true;
     setThinking(true);
     const started = Date.now();
-    const { movetime, minDelay } = botThinkMs({ skill, initialMs: props.initialMs });
+    const { movetime, minDelay } = engineMode
+      ? engineThinkMs({ initialMs: props.initialMs, elo: decoded.elo })
+      : personalityThinkMs({ skill, initialMs: props.initialMs });
 
     try {
       if (!engineRef.current) {
         engineRef.current = createStockfish();
       }
-      await engineRef.current.configure(skill, botElo);
+      if (engineMode) {
+        await engineRef.current.configureEngine(decoded.elo);
+      } else {
+        await engineRef.current.configure(skill, botElo, { multipv: 1 });
+      }
       const best = await engineRef.current.bestMove(chess.fen(), { movetime });
       const elapsed = Date.now() - started;
       if (elapsed < minDelay) {
@@ -138,7 +156,19 @@ export function GameBoard(props: Props) {
       setThinking(false);
       botBusy.current = false;
     }
-  }, [props.isBot, props.initialMs, props.gameId, props.userId, skill, botElo, myColor, status, clearSelection]);
+  }, [
+    props.isBot,
+    props.initialMs,
+    props.gameId,
+    props.userId,
+    skill,
+    botElo,
+    engineMode,
+    decoded.elo,
+    myColor,
+    status,
+    clearSelection,
+  ]);
 
   const applyMove = useCallback(
     async (from: string, to: string, promotion?: string, remote = false) => {
@@ -441,7 +471,9 @@ export function GameBoard(props: Props) {
 
         {props.isBot && (
           <p className="ui text-sm muted mb-2">
-            Computer · {botElo} Elo ({botMeta.label})
+            {engineMode
+              ? `Stockfish · ${isEngineFullStrength(decoded.elo) ? "Max" : `${formatEngineElo(decoded.elo)} Elo`}`
+              : `Computer · ${botElo} Elo (${botMeta.label})`}
             {thinking ? " · thinking…" : ""}
           </p>
         )}

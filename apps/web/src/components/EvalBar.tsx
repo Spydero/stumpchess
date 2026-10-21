@@ -1,9 +1,10 @@
 "use client";
 
+import { memo } from "react";
 import { formatEval } from "@/lib/stockfish";
 
 /** Vertical eval bar: 0 = black winning hard, 1 = white winning hard */
-export function EvalBar({ whiteCp }: { whiteCp: number }) {
+export const EvalBar = memo(function EvalBar({ whiteCp }: { whiteCp: number }) {
   const clamped = Math.max(-1000, Math.min(1000, whiteCp));
   // sigmoid-ish for display
   const t = 1 / (1 + Math.exp(-clamped / 280));
@@ -21,4 +22,4 @@ export function EvalBar({ whiteCp }: { whiteCp: number }) {
       </div>
     </div>
   );
-}
+});

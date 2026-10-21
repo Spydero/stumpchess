@@ -6,7 +6,7 @@ Lightweight chess platform: random matchmaking, classic forum, roles (VIP / STA 
 
 - Next.js (Better Auth)
 - Express + Socket.IO (matchmaking, WebRTC signaling, relay fallback)
-- Prisma + SQLite (local) — swap `DATABASE_URL` to Postgres for deploy
+- Prisma + SQLite (local). Swap `DATABASE_URL` to Postgres for deploy.
 - Client-side Stockfish (analysis + bots)
 
 ## Quick start
@@ -38,7 +38,7 @@ Then in another terminal (with web running):
 
 ### Screenshots
 
-See [`docs/screenshots/`](docs/screenshots/) — home, login, play, VIP analysis, forum, Owner profile.
+See [`docs/screenshots/`](docs/screenshots/) for home, login, play, VIP analysis, forum, Owner profile.
 
 ## Google link (optional)
 
@@ -49,8 +49,13 @@ Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` / `apps/web/.env.loc
 | Role | Notes |
 |------|--------|
 | Member | Play, forum, search, bots |
-| VIP 30 / VIP Permanent | Full analysis |
+| VIP 30 / VIP Permanent | Full analysis, Practice (coach / both sides), mistake drills |
 | STA (red, 28d) | Limited forum mod |
 | LTA (blue) | Assign VIP/STA |
 | Manager | High staff |
 | Owner (`jOjo`) | All; public stats hidden |
+
+## VIP Practice
+
+- **`/practice`**: both sides, vs bot, or coach (`?mode=coach`) with live eval and move labels.
+- **`/practice/mistakes`**: drill mistakes from a saved review (`analysisJson`).

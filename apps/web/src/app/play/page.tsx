@@ -1,25 +1,44 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BOT_PRESETS, TIME_CONTROLS, type TimeControlId } from "@chess/shared";
+import {
+  ENGINE_ELO_FULL,
+  ENGINE_ELO_MAX,
+  ENGINE_ELO_MIN,
+  PERSONALITY_BOTS,
+  STOCKFISH_BOT,
+  TIME_CONTROLS,
+  clampEngineElo,
+  encodeBotLevel,
+  formatEngineElo,
+  isEngineFullStrength,
+  playableBotById,
+  type TimeControlId,
+} from "@chess/shared";
 import { useSession } from "@/lib/auth-client";
 import { getSocket } from "@/lib/socket";
 import { apiFetch } from "@/lib/api";
+import { userHasVip } from "@/lib/roles";
 
 export default function PlayPage() {
   const { data, isPending } = useSession();
-  const user = data?.user as { id: string; username?: string; name: string } | undefined;
+  const user = data?.user as
+    | { id: string; username?: string; name: string; role?: string; vipExpiresAt?: string | null }
+    | undefined;
   const router = useRouter();
   const [waiting, setWaiting] = useState(false);
   const [tc, setTc] = useState<TimeControlId>("5+0");
-  const [botSkill, setBotSkill] = useState<number>(BOT_PRESETS[3].skill);
+  const [botId, setBotId] = useState<string>(PERSONALITY_BOTS[3].id);
+  const [engineElo, setEngineElo] = useState(2000);
   const [botColor, setBotColor] = useState<"w" | "b">("w");
   const [challengeUser, setChallengeUser] = useState("");
   const [error, setError] = useState("");
   const [inviteUrl, setInviteUrl] = useState("");
 
-  const bot = BOT_PRESETS.find((b) => b.skill === botSkill) || BOT_PRESETS[3];
+  const bot = playableBotById(botId);
+  const isVip = user ? userHasVip(user.role || "MEMBER", user.vipExpiresAt) : false;
 
   useEffect(() => {
     if (!user) return;
@@ -62,10 +81,14 @@ export default function PlayPage() {
   async function playBot() {
     if (!user) return router.push("/login");
     try {
+      const level =
+        bot.kind === "engine"
+          ? encodeBotLevel({ kind: "engine", elo: engineElo })
+          : encodeBotLevel({ kind: "personality", skill: bot.skill });
       const game = await apiFetch("/api/games/bot", {
         method: "POST",
         userId: user.id,
-        body: JSON.stringify({ level: botSkill, color: botColor }),
+        body: JSON.stringify({ level, color: botColor }),
       });
       router.push(`/game/${game.id}?bot=1`);
     } catch (e) {
@@ -126,22 +149,66 @@ export default function PlayPage() {
 
       <section id="bot" className="panel p-5">
         <h2 className="text-2xl sm:text-3xl mb-2">vs Computer</h2>
-        <p className="ui text-sm mb-4">
-          <span className="font-semibold">{bot.elo} Elo</span>
-          <span className="muted"> · {bot.label}</span>
+        <p className="ui text-sm mb-1">
+          <span className="font-semibold">{bot.name}</span>
+          <span className="muted">
+            {" · "}
+            {bot.kind === "engine"
+              ? isEngineFullStrength(engineElo)
+                ? "Max"
+                : `~${formatEngineElo(engineElo)} Elo`
+              : `~${bot.elo} Elo · ${bot.style}`}
+          </span>
         </p>
-        <label className="block ui text-sm muted mb-2">Strength</label>
-        <select
-          className="input mb-4"
-          value={botSkill}
-          onChange={(e) => setBotSkill(Number(e.target.value))}
-        >
-          {BOT_PRESETS.map((b) => (
-            <option key={b.skill} value={b.skill}>
-              {b.elo} Elo · {b.label}
-            </option>
-          ))}
+        <p className="ui text-xs muted mb-4">{bot.tagline}</p>
+        <label className="block ui text-sm muted mb-2">Opponent</label>
+        <select className="input mb-3" value={botId} onChange={(e) => setBotId(e.target.value)}>
+          <optgroup label="Personality">
+            {PERSONALITY_BOTS.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name} · {b.elo} · {b.style}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Engine">
+            <option value={STOCKFISH_BOT.id}>{STOCKFISH_BOT.name}</option>
+          </optgroup>
         </select>
+        {bot.kind === "engine" && (
+          <div className="mb-4 space-y-2">
+            <label className="block ui text-xs muted">
+              Elo {isEngineFullStrength(engineElo) ? "(Max)" : formatEngineElo(engineElo)}
+            </label>
+            <input
+              type="range"
+              min={ENGINE_ELO_MIN}
+              max={ENGINE_ELO_MAX + 50}
+              step={50}
+              value={isEngineFullStrength(engineElo) ? ENGINE_ELO_MAX + 50 : engineElo}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setEngineElo(v > ENGINE_ELO_MAX ? ENGINE_ELO_FULL : clampEngineElo(v));
+              }}
+              className="w-full accent-[var(--accent)]"
+            />
+            <div className="flex flex-wrap gap-1">
+              {[1200, 1600, 2000, 2400, ENGINE_ELO_FULL].map((e) => (
+                <button
+                  key={e === ENGINE_ELO_FULL ? "max" : e}
+                  type="button"
+                  className={`btn !px-2 !py-1 !text-xs ${
+                    (e === ENGINE_ELO_FULL && isEngineFullStrength(engineElo)) || engineElo === e
+                      ? "btn-accent"
+                      : "btn-ghost"
+                  }`}
+                  onClick={() => setEngineElo(e)}
+                >
+                  {e === ENGINE_ELO_FULL ? "Max" : e}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex gap-2 mb-4">
           <button
             type="button"
@@ -159,8 +226,33 @@ export default function PlayPage() {
           </button>
         </div>
         <button type="button" className="btn btn-accent w-full sm:w-auto" onClick={playBot}>
-          Start
+          Start game
         </button>
+        <p className="ui text-xs muted mt-3 mb-0">
+          {isVip ? (
+            <>
+              VIP:{" "}
+              <Link href="/practice?mode=coach" className="link-accent">
+                Play with coach
+              </Link>
+              {" · "}
+              <Link href="/practice" className="link-accent">
+                Practice board
+              </Link>
+              {" · "}
+              <Link href="/practice/mistakes" className="link-accent">
+                Your mistakes
+              </Link>
+            </>
+          ) : (
+            <>
+              Coach and mistake drills need VIP.{" "}
+              <Link href="/practice" className="link-accent">
+                Practice
+              </Link>
+            </>
+          )}
+        </p>
       </section>
 
       <section className="panel p-5 md:col-span-2 xl:col-span-1">

@@ -106,6 +106,10 @@ model Game {
   winnerId     String?
   isBot        Boolean    @default(false)
   botLevel     Int?
+  /** Cached Stockfish review JSON. Reused until user re-analyzes. */
+  analysisJson   String?
+  analysisDepth  Int?
+  analyzedAt     DateTime?
   createdAt    DateTime   @default(now())
   startedAt    DateTime?
   endedAt      DateTime?

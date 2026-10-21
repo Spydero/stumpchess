@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "copy-engine": "node scripts/copy-engine.mjs",
+    "predev": "pnpm copy-engine",
+    "prebuild": "pnpm copy-engine",
     "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start",
@@ -17,7 +20,8 @@
     "react": "^19.0.0",
     "react-chessboard": "^4.7.2",
     "react-dom": "^19.0.0",
-    "socket.io-client": "^4.8.1"
+    "socket.io-client": "^4.8.1",
+    "stockfish": "19.0.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

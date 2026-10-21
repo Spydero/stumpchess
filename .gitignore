@@ -12,6 +12,10 @@ packages/db/prisma/*.db-journal
 coverage
 *.log
 apps/web/public/stockfish*
+apps/web/public/engines/stockfish-*
+apps/web/public/engines/nn-*.nnue
+apps/web/public/engines/*.wasm
+apps/web/public/engines/*.js
 
 apps/web/.env.local
 apps/server/.env

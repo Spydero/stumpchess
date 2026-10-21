@@ -43,7 +43,7 @@ async function main() {
         displayUsername: OWNER_USERNAME,
         name: "jOjo",
         role: Role.OWNER,
-        image: "/avatars/tree-stump.svg",
+        image: "/avatars/tree-stump.jpg",
         emailVerified: true,
       },
     });

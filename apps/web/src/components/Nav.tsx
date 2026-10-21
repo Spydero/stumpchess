@@ -9,6 +9,7 @@ import { useTheme } from "./ThemeProvider";
 
 const LINKS = [
   { href: "/play", label: "Play" },
+  { href: "/practice", label: "Practice" },
   { href: "/games", label: "Games" },
   { href: "/leaders", label: "Leaders" },
   { href: "/forum", label: "Forum" },
@@ -43,16 +44,17 @@ export function Nav() {
             <Link
               key={l.href}
               href={l.href}
-              className={`px-2 py-1 rounded-sm ${
-                pathname.startsWith(l.href) ? "text-[var(--nav-active)] font-semibold" : "muted hover:text-[var(--ink)]"
-              }`}
+              className={`nav-link ${pathname.startsWith(l.href) ? "active" : "muted"}`}
             >
               {l.label}
             </Link>
           ))}
           {user ? (
             <>
-              <Link href={`/u/${user.username || user.name}`} className="flex items-center gap-1.5 px-2">
+              <Link
+                href={`/u/${user.username || user.name}`}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-[var(--panel-hover)] transition-colors"
+              >
                 <span>{user.username || user.name}</span>
                 {user.role && user.role !== "MEMBER" && <RoleBadge role={user.role} />}
               </Link>

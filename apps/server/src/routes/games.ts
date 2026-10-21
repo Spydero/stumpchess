@@ -57,7 +57,12 @@ export function createGamesRouter() {
   });
 
   router.post("/bot", requireUser, async (req: AuthedRequest, res) => {
-    const level = Math.min(20, Math.max(1, Number(req.body?.level ?? 5)));
+    // Personality: 0–18. Engine Elo: 800–2850. Full engine: 20.
+    const raw = Number(req.body?.level ?? 5);
+    const level =
+      raw >= 800 && raw <= 2850
+        ? Math.round(raw)
+        : Math.min(20, Math.max(0, Number.isFinite(raw) ? raw : 5));
     const color = req.body?.color === "b" ? "b" : "w";
     const tc = TIME_CONTROLS[1];
     const game = await prisma.game.create({
@@ -177,6 +182,45 @@ export function createGamesRouter() {
     const vip = hasVipAccess(user.role as Role, user.vipExpiresAt);
     if (!vip) return res.status(403).json({ error: "VIP required", vip: false });
     res.json({ vip: true });
+  });
+
+  /** Save / replace cached game review (VIP, participant only). */
+  router.put("/:id/analysis", requireUser, async (req: AuthedRequest, res) => {
+    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!hasVipAccess(user.role as Role, user.vipExpiresAt)) {
+      return res.status(403).json({ error: "VIP required" });
+    }
+
+    const game = await prisma.game.findUnique({ where: { id: param(req, "id") } });
+    if (!game) return res.status(404).json({ error: "Not found" });
+    if (req.user!.id !== game.whiteId && req.user!.id !== game.blackId) {
+      return res.status(403).json({ error: "Not your game" });
+    }
+
+    const { analysisJson, depth } = req.body as { analysisJson?: string; depth?: number };
+    if (!analysisJson || typeof analysisJson !== "string") {
+      return res.status(400).json({ error: "analysisJson required" });
+    }
+    if (analysisJson.length > 2_000_000) {
+      return res.status(400).json({ error: "Analysis too large" });
+    }
+    try {
+      JSON.parse(analysisJson);
+    } catch {
+      return res.status(400).json({ error: "Invalid analysis JSON" });
+    }
+
+    const updated = await prisma.game.update({
+      where: { id: game.id },
+      data: {
+        analysisJson,
+        analysisDepth: typeof depth === "number" ? depth : null,
+        analyzedAt: new Date(),
+      },
+      select: { id: true, analysisDepth: true, analyzedAt: true },
+    });
+    res.json(updated);
   });
 
   return router;
