@@ -2,22 +2,26 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSession, signOut } from "@/lib/auth-client";
 import { RoleBadge } from "./RoleBadge";
 import { useTheme } from "./ThemeProvider";
 
-const LINKS = [
+const PRIMARY = [
   { href: "/play", label: "Play" },
   { href: "/watch", label: "Watch" },
   { href: "/openings", label: "Openings" },
   { href: "/practice", label: "Practice" },
   { href: "/games", label: "Games" },
   { href: "/messages", label: "Messages" },
-  { href: "/leaders", label: "Leaders" },
+];
+
+const MORE = [
   { href: "/forum", label: "Forum" },
   { href: "/analysis", label: "Analysis" },
+  { href: "/leaders", label: "Leaders" },
   { href: "/search", label: "Search" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function Nav() {
@@ -25,6 +29,8 @@ export function Nav() {
   const { theme, toggle } = useTheme();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement | null>(null);
   const user = data?.user as
     | { id: string; name: string; username?: string; role?: string; image?: string | null }
     | undefined;
@@ -35,15 +41,30 @@ export function Nav() {
     user?.role === "OWNER" ||
     user?.role === "STA";
 
+  const moreActive = MORE.some((l) => pathname.startsWith(l.href)) || pathname.startsWith("/admin");
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (!moreRef.current?.contains(e.target as Node)) setMoreOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  useEffect(() => {
+    setMoreOpen(false);
+    setOpen(false);
+  }, [pathname]);
+
   return (
     <header className="site-header sticky top-0 z-40 border-b border-[var(--line)] bg-[var(--header)] backdrop-blur-md">
-      <div className="shell flex items-center justify-between gap-3 py-2.5">
-        <Link href="/" className="brand-mark text-lg sm:text-xl shrink-0" onClick={() => setOpen(false)}>
+      <div className="shell flex items-center gap-3 py-2">
+        <Link href="/" className="brand-mark text-lg shrink-0" onClick={() => setOpen(false)}>
           stump<span className="text-[var(--accent)]">chess</span>
         </Link>
 
-        <nav className="hidden md:flex items-center gap-0.5 lg:gap-1 ui text-sm">
-          {LINKS.map((l) => (
+        <nav className="hidden lg:flex items-center gap-0.5 ui text-sm flex-1 min-w-0">
+          {PRIMARY.map((l) => (
             <Link
               key={l.href}
               href={l.href}
@@ -52,49 +73,79 @@ export function Nav() {
               {l.label}
             </Link>
           ))}
+
+          <div className="nav-more" ref={moreRef}>
+            <button
+              type="button"
+              className={`nav-link ${moreActive || moreOpen ? "active" : "muted"}`}
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((v) => !v)}
+            >
+              More
+            </button>
+            {moreOpen && (
+              <div className="nav-more-menu panel">
+                {MORE.map((l) => (
+                  <Link
+                    key={l.href}
+                    href={l.href}
+                    className={`nav-more-item ${pathname.startsWith(l.href) ? "active" : ""}`}
+                    onClick={() => setMoreOpen(false)}
+                  >
+                    {l.label}
+                  </Link>
+                ))}
+                {isStaff && (
+                  <Link
+                    href="/admin"
+                    className={`nav-more-item ${pathname.startsWith("/admin") ? "active" : ""}`}
+                    onClick={() => setMoreOpen(false)}
+                  >
+                    Admin
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
+        </nav>
+
+        <div className="hidden lg:flex items-center gap-1 ui text-sm shrink-0 ml-auto">
           {user ? (
             <>
               <Link
                 href={`/u/${user.username || user.name}`}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-[var(--panel-hover)] transition-colors"
+                className="nav-user"
+                title={user.username || user.name}
               >
-                <span>{user.username || user.name}</span>
+                <span className="nav-user-name">{user.username || user.name}</span>
                 {user.role && user.role !== "MEMBER" && <RoleBadge role={user.role} />}
               </Link>
-              <Link href="/settings" className="px-2 muted hover:text-[var(--ink)]">
-                Settings
-              </Link>
-              {isStaff && (
-                <Link href="/admin" className="px-2 muted hover:text-[var(--ink)]">
-                  Admin
-                </Link>
-              )}
-              <button type="button" className="btn btn-ghost !py-1 !px-2" onClick={() => signOut()}>
-                Logout
+              <button type="button" className="btn btn-ghost !py-1 !px-2 !text-xs" onClick={() => signOut()}>
+                Out
               </button>
             </>
           ) : (
             <>
-              <Link href="/login" className="px-2 muted hover:text-[var(--ink)]">
+              <Link href="/login" className="nav-link muted">
                 Login
               </Link>
-              <Link href="/register" className="btn btn-accent !py-1 !px-3">
-                Register
+              <Link href="/register" className="btn btn-accent !py-1 !px-2.5 !text-xs">
+                Join
               </Link>
             </>
           )}
           <button
             type="button"
-            className="btn btn-ghost !py-1 !px-2 ml-1"
+            className="btn btn-ghost !py-1 !px-2 !text-xs"
             onClick={toggle}
             aria-label="Toggle theme"
             title={theme === "light" ? "Dark mode" : "Light mode"}
           >
             {theme === "light" ? "Dark" : "Light"}
           </button>
-        </nav>
+        </div>
 
-        <div className="flex md:hidden items-center gap-2">
+        <div className="flex lg:hidden items-center gap-2 ml-auto">
           <button type="button" className="btn btn-ghost !py-1 !px-2 ui text-xs" onClick={toggle}>
             {theme === "light" ? "Dark" : "Light"}
           </button>
@@ -111,13 +162,15 @@ export function Nav() {
       </div>
 
       {open && (
-        <div className="md:hidden border-t border-[var(--line)] bg-[var(--panel)] ui text-sm">
+        <div className="lg:hidden border-t border-[var(--line)] bg-[var(--panel)] ui text-sm">
           <div className="shell py-2 flex flex-col">
-            {LINKS.map((l) => (
+            {[...PRIMARY, ...MORE].map((l) => (
               <Link
                 key={l.href}
                 href={l.href}
-                className="py-2.5 border-b border-[var(--line)]"
+                className={`py-2.5 border-b border-[var(--line)] ${
+                  pathname.startsWith(l.href) ? "text-[var(--accent)] font-semibold" : ""
+                }`}
                 onClick={() => setOpen(false)}
               >
                 {l.label}
@@ -132,9 +185,6 @@ export function Nav() {
                 >
                   {user.username || user.name}
                   {user.role && user.role !== "MEMBER" && <RoleBadge role={user.role} />}
-                </Link>
-                <Link href="/settings" className="py-2.5 border-b border-[var(--line)]" onClick={() => setOpen(false)}>
-                  Settings
                 </Link>
                 {isStaff && (
                   <Link href="/admin" className="py-2.5 border-b border-[var(--line)]" onClick={() => setOpen(false)}>

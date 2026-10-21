@@ -42,7 +42,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <ThemeProvider>
           <BoardThemeProvider>
             <Nav />
-            <main className="shell py-6 sm:py-8 pb-16">{children}</main>
+            <main className="shell py-4 sm:py-6 pb-14">{children}</main>
           </BoardThemeProvider>
         </ThemeProvider>
       </body>

@@ -376,11 +376,11 @@ export function OpeningsExplorer({ isVip }: Props) {
   }
 
   return (
-    <div className="openings-layout rise-in">
+    <div className="openings-layout">
       <div className="openings-board-col">
-        <div className="flex gap-2 sm:gap-3 items-stretch">
+        <div className="openings-board-row">
           {analysisOn && <EvalBar whiteCp={coachInfo ? whiteCp : 0} />}
-          <div className="flex-1 min-w-0 max-w-[min(100%,560px)] relative">
+          <div className="openings-board-wrap relative">
             <BookSquareProvider target={bookTarget}>
               <Chessboard
                 position={fen}
@@ -397,180 +397,139 @@ export function OpeningsExplorer({ isVip }: Props) {
                 customLightSquareStyle={LIGHT_SQ}
               />
             </BookSquareProvider>
-            {lastWasBook && (
-              <div className="openings-book-float">
-                <BookMoveBadge large />
-              </div>
-            )}
           </div>
         </div>
-        {lastWasBook && history[ply - 1] && (
-          <div className="openings-book-callout ui text-sm mt-2">
-            <BookMoveBadge large />
-            <span>
-              <strong>{history[ply - 1].san}</strong> is a book move
-              {opening ? ` · ${opening.eco} ${opening.name}` : ""}
-            </span>
-          </div>
-        )}
 
         {promo && (
-          <div className="mt-3 panel p-3 flex flex-wrap items-center gap-2 ui text-sm">
-            <span className="muted">Promote to</span>
+          <div className="openings-toolbar ui text-sm">
+            <span className="muted">Promote</span>
             {(["q", "r", "b", "n"] as const).map((p) => (
               <button
                 key={p}
                 type="button"
-                className="btn btn-ghost !py-1 !px-3"
-                onClick={() => {
-                  tryMove(promo.from, promo.to, p);
-                }}
+                className="openings-tool"
+                onClick={() => tryMove(promo.from, promo.to, p)}
               >
                 {p.toUpperCase()}
               </button>
             ))}
-            <button type="button" className="btn btn-ghost !py-1 !px-3" onClick={() => setPromo(null)}>
+            <button type="button" className="openings-tool" onClick={() => setPromo(null)}>
               Cancel
             </button>
           </div>
         )}
 
-        <div className="mt-3 flex flex-wrap gap-2 ui">
-          <button
-            type="button"
-            className="btn btn-ghost !py-1.5 !px-3 !text-sm"
-            onClick={() => syncToPly([], 0)}
-          >
+        <div className="openings-toolbar ui">
+          <button type="button" className="openings-tool" onClick={() => syncToPly([], 0)}>
             Reset
           </button>
           <button
             type="button"
-            className="btn btn-ghost !py-1.5 !px-3 !text-sm"
+            className="openings-tool"
             disabled={ply <= 0}
             onClick={() => syncToPly(history, ply - 1)}
           >
-            Back
+            ‹
           </button>
           <button
             type="button"
-            className="btn btn-ghost !py-1.5 !px-3 !text-sm"
+            className="openings-tool"
             disabled={ply >= history.length}
             onClick={() => syncToPly(history, ply + 1)}
           >
-            Forward
+            ›
           </button>
           <button
             type="button"
-            className="btn btn-ghost !py-1.5 !px-3 !text-sm"
+            className="openings-tool"
             onClick={() => setOrientation((o) => (o === "white" ? "black" : "white"))}
           >
             Flip
           </button>
-          <button type="button" className="btn btn-ghost !py-1.5 !px-3 !text-sm" onClick={copyPgn}>
-            {copied ? "Copied" : "Copy PGN"}
+          <button type="button" className="openings-tool" onClick={copyPgn}>
+            {copied ? "Copied" : "PGN"}
           </button>
           {isVip && (
-            <button type="button" className="btn btn-ghost !py-1.5 !px-3 !text-sm" onClick={openAnalysis}>
-              Deep analysis
+            <button type="button" className="openings-tool" onClick={openAnalysis}>
+              Analyze
             </button>
           )}
         </div>
-
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {OPENING_ROOTS.map((r) => (
-            <button key={r.uci} type="button" className="chip-btn" onClick={() => jumpRoot(r.uci)}>
-              {r.label}
-            </button>
-          ))}
-        </div>
       </div>
 
-      <aside className="openings-side panel">
+      <aside className="openings-side">
         <div className="openings-side-head">
-          <div className="min-w-0">
-            <p className="forum-kicker mb-1">Opening</p>
-            <div className="flex flex-wrap items-center gap-2">
-              {opening ? (
-                <p className="ui text-xs font-bold tracking-wide text-[var(--accent)] m-0">
-                  {opening.eco}
-                </p>
+          <div className="min-w-0 flex-1">
+            <div className="openings-title-row">
+              {opening?.eco && <span className="openings-eco">{opening.eco}</span>}
+              {lastWasBook ? (
+                <BookMoveBadge />
+              ) : !inBook ? (
+                <span className="openings-offbook">Off book</span>
               ) : null}
-              {lastWasBook ? <BookMoveBadge large /> : inBook ? <BookMoveBadge /> : (
-                <span className="badge" style={{ color: "var(--muted)" }}>
-                  Off book
-                </span>
-              )}
             </div>
-            {opening ? (
-              <h2 className="text-xl m-0 mt-0.5 leading-snug">{opening.name}</h2>
-            ) : (
-              <h2 className="text-xl m-0 mt-0.5">{inBook ? "Starting position" : "Off book"}</h2>
-            )}
+            <h2 className="openings-name">
+              {opening?.name || (inBook ? "Starting position" : "Outside book")}
+            </h2>
             {analysisOn && (
-              <p className="ui text-sm muted mt-1 mb-0">
-                {engineStatus === "loading" && <span className="pulse-soft">Loading engine…</span>}
+              <p className="openings-engine ui">
+                {engineStatus === "loading" && <span className="pulse-soft">Loading…</span>}
                 {engineStatus === "thinking" && !coachInfo && (
                   <span className="pulse-soft">Analyzing…</span>
                 )}
                 {engineStatus === "error" && (
-                  <span className="text-[var(--danger)]">Engine failed. Toggle Analysis off/on.</span>
+                  <span className="text-[var(--danger)]">Engine error</span>
                 )}
                 {coachInfo && (
                   <>
-                    Engine {formatEval(whiteCp)}
+                    {formatEval(whiteCp)}
                     {coachInfo.depth ? ` · d${coachInfo.depth}` : ""}
-                    {engineStatus === "thinking" ? " · …" : ""}
+                    {engineStatus === "thinking" ? " …" : ""}
                   </>
                 )}
               </p>
             )}
           </div>
-          <label className="analysis-toggle ui text-sm">
+          <label className={`analysis-toggle ui ${analysisOn ? "on" : ""}`}>
             <input
               type="checkbox"
               checked={analysisOn}
               onChange={(e) => setAnalysisOn(e.target.checked)}
             />
-            <span>Analysis</span>
+            <span>Engine</span>
           </label>
         </div>
 
-        {lastWasBook && history[ply - 1] && (
-          <div className="openings-book-banner ui text-sm">
-            <BookMoveBadge />
-            <span>
-              <strong>{history[ply - 1].san}</strong> is a book move
-              {opening ? ` · ${opening.eco}` : ""}
-            </span>
-          </div>
-        )}
-
         <div className="openings-moves">
           {movePairs.length === 0 ? (
-            <p className="ui text-sm muted px-4 py-3 m-0">Play a move or pick a first move above.</p>
+            <div className="openings-roots">
+              {OPENING_ROOTS.map((r) => (
+                <button key={r.uci} type="button" className="openings-root" onClick={() => jumpRoot(r.uci)}>
+                  {r.label}
+                </button>
+              ))}
+            </div>
           ) : (
-            <ol className="openings-movelist ui text-sm">
+            <ol className="openings-movelist ui">
               {movePairs.map((pair) => (
                 <li key={pair.n}>
                   <span className="openings-num">{pair.n}.</span>
                   {pair.w && (
                     <button
                       type="button"
-                      className={`openings-san ${ply === pair.wIdx ? "active" : ""}`}
+                      className={`openings-san ${ply === pair.wIdx ? "active" : ""} ${pair.w.book ? "book" : ""}`}
                       onClick={() => syncToPly(history, pair.wIdx)}
                     >
                       {pair.w.san}
-                      {pair.w.book && <BookMoveBadge compact />}
                     </button>
                   )}
                   {pair.b && (
                     <button
                       type="button"
-                      className={`openings-san ${ply === pair.bIdx ? "active" : ""}`}
+                      className={`openings-san ${ply === pair.bIdx ? "active" : ""} ${pair.b.book ? "book" : ""}`}
                       onClick={() => syncToPly(history, pair.bIdx)}
                     >
                       {pair.b.san}
-                      {pair.b.book && <BookMoveBadge compact />}
                     </button>
                   )}
                 </li>
@@ -580,16 +539,12 @@ export function OpeningsExplorer({ isVip }: Props) {
         </div>
 
         <div className="openings-next">
-          <div className="px-4 py-2 border-b border-[var(--line)] flex items-center justify-between">
-            <h3 className="text-sm m-0 ui font-semibold tracking-wide uppercase text-[var(--muted)]">
-              Next moves
-            </h3>
-            <span className="ui text-[11px] muted">{meta.lines.toLocaleString()} book lines</span>
+          <div className="openings-next-head ui">
+            <span>Moves</span>
+            <span className="muted">{meta.lines.toLocaleString()} lines</span>
           </div>
           {nextMoves.length === 0 ? (
-            <p className="ui text-sm muted px-4 py-4 m-0">
-              Off book. Keep exploring freehand, or go back into known lines.
-            </p>
+            <p className="openings-empty ui muted">No book moves here. Step back or play on.</p>
           ) : (
             <ul className="openings-book-list">
               {nextMoves.map((row) => (
@@ -617,18 +572,16 @@ function BookRow({
   maxCount: number;
   onPick: () => void;
 }) {
-  const pct = Math.max(6, Math.round((row.count / maxCount) * 100));
+  const pct = Math.max(4, Math.round((row.count / maxCount) * 100));
+  const share = maxCount > 0 ? Math.round((row.count / maxCount) * 100) : 0;
   return (
     <li>
       <button type="button" className="openings-book-row" onClick={onPick}>
-        <span className="openings-book-san">
-          {row.san}
-          <BookMoveBadge compact />
-        </span>
+        <span className="openings-book-san">{row.san}</span>
         <span className="openings-book-bar-wrap" aria-hidden>
           <span className="openings-book-bar" style={{ width: `${pct}%` }} />
         </span>
-        <span className="openings-book-count tabular-nums">{row.count}</span>
+        <span className="openings-book-count tabular-nums">{share}%</span>
         {row.name && (
           <span className="openings-book-name muted" title={row.name}>
             {row.eco ? `${row.eco} ` : ""}
