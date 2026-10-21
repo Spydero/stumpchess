@@ -6,7 +6,6 @@ export type EngineInfo = {
   mate?: number;
   depth?: number;
   pv?: string;
-  /** Second-best line eval (white POV after converting) — raw side-to-move perspective */
   secondScoreCp?: number;
   secondMate?: number;
   secondBestMove?: string;
@@ -20,6 +19,14 @@ type MultipvLine = {
   pv?: string;
 };
 
+function asLine(data: unknown): string {
+  if (typeof data === "string") return data;
+  if (data && typeof data === "object" && "data" in (data as object)) {
+    return String((data as { data: unknown }).data);
+  }
+  return String(data ?? "");
+}
+
 /**
  * Stockfish Web Worker from same origin (public/engines/stockfish.js).
  */
@@ -30,12 +37,16 @@ export function createStockfish() {
   let latest: EngineInfo = {};
   let lines: Record<number, MultipvLine> = {};
   let ready = false;
-  const readyWaiters: Array<() => void> = [];
+  let readyWaiters: Array<() => void> = [];
   let onInfo: ((info: EngineInfo) => void) | null = null;
+  let searching = false;
+  let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const onReady = () => {
+  const flushReady = () => {
     ready = true;
-    while (readyWaiters.length) readyWaiters.shift()?.();
+    const waiters = readyWaiters;
+    readyWaiters = [];
+    waiters.forEach((w) => w());
   };
 
   const waitReady = () =>
@@ -44,10 +55,22 @@ export function createStockfish() {
       else readyWaiters.push(resolve);
     });
 
+  /** Request a fresh readyok handshake */
+  const pingReady = () =>
+    new Promise<void>((resolve) => {
+      ready = false;
+      readyWaiters.push(resolve);
+      worker.postMessage("isready");
+      // safety: never block forever on handshake
+      setTimeout(() => {
+        if (!ready) flushReady();
+      }, 3000);
+    });
+
   const buildInfo = (): EngineInfo => {
-    const primary = lines[1] || {};
+    const primary = lines[1] || Object.values(lines)[0] || {};
     const second = lines[2];
-    const pvFirst = primary.pv?.split(" ")[0];
+    const pvFirst = primary.pv?.split(/\s+/)[0];
     return {
       bestMove: latest.bestMove || pvFirst,
       scoreCp: primary.scoreCp,
@@ -56,66 +79,84 @@ export function createStockfish() {
       pv: primary.pv,
       secondScoreCp: second?.scoreCp,
       secondMate: second?.mate,
-      secondBestMove: second?.pv?.split(" ")[0],
+      secondBestMove: second?.pv?.split(/\s+/)[0],
     };
   };
 
-  worker.onmessage = (e: MessageEvent<string>) => {
-    const line = typeof e.data === "string" ? e.data : String(e.data);
-    if (line === "uciok" || line === "readyok") {
-      onReady();
+  const finishSearch = (info: EngineInfo) => {
+    if (searchTimer) {
+      clearTimeout(searchTimer);
+      searchTimer = null;
     }
-    if (line.startsWith("info ") && line.includes(" score ")) {
-      const multipv = Number(/ multipv (\d+)/.exec(line)?.[1] || "1");
-      const depth = / depth (\d+)/.exec(line)?.[1];
-      const mate = / score mate (-?\d+)/.exec(line)?.[1];
-      const cp = / score cp (-?\d+)/.exec(line)?.[1];
-      const pv = / pv (.+)/.exec(line)?.[1];
-      lines[multipv] = {
-        multipv,
-        depth: depth ? Number(depth) : lines[multipv]?.depth,
-        mate: mate !== undefined ? Number(mate) : undefined,
-        scoreCp: cp !== undefined ? Number(cp) : mate !== undefined ? undefined : lines[multipv]?.scoreCp,
-        pv: pv ?? lines[multipv]?.pv,
-      };
-      latest = {
-        ...latest,
-        ...buildInfo(),
-        depth: depth ? Number(depth) : latest.depth,
-      };
-      onInfo?.(buildInfo());
-    }
-    if (line.startsWith("bestmove ")) {
-      const best = line.split(/\s+/)[1];
-      latest = { ...buildInfo(), bestMove: best === "(none)" ? undefined : best };
-      resolver?.(latest);
-      resolver = null;
-      onInfo = null;
+    searching = false;
+    const r = resolver;
+    resolver = null;
+    onInfo = null;
+    r?.(info);
+  };
+
+  worker.onmessage = (e: MessageEvent) => {
+    const raw = asLine(e.data);
+    // Some builds emit multiple lines per message
+    for (const line of raw.split("\n")) {
+      const text = line.trim();
+      if (!text) continue;
+
+      if (text === "uciok" || text === "readyok") {
+        flushReady();
+      }
+
+      if (text.startsWith("info ") && (text.includes(" score ") || text.includes(" depth "))) {
+        const multipv = Number(/ multipv (\d+)/.exec(text)?.[1] || "1");
+        const depth = / depth (\d+)/.exec(text)?.[1];
+        const mate = / score mate (-?\d+)/.exec(text)?.[1];
+        const cp = / score cp (-?\d+)/.exec(text)?.[1];
+        const pvMatch = / pv (.+)$/.exec(text);
+        const pv = pvMatch?.[1];
+        const prev = lines[multipv] || { multipv };
+        lines[multipv] = {
+          multipv,
+          depth: depth ? Number(depth) : prev.depth,
+          mate: mate !== undefined ? Number(mate) : cp !== undefined ? undefined : prev.mate,
+          scoreCp: cp !== undefined ? Number(cp) : mate !== undefined ? undefined : prev.scoreCp,
+          pv: pv ?? prev.pv,
+        };
+        latest = { ...latest, ...buildInfo(), depth: depth ? Number(depth) : latest.depth };
+        onInfo?.(buildInfo());
+      }
+
+      if (text.startsWith("bestmove ")) {
+        // Ignore stray bestmove if we aren't waiting (e.g. after stop)
+        if (!resolver && !searching) continue;
+        const best = text.split(/\s+/)[1];
+        const info = {
+          ...buildInfo(),
+          bestMove: !best || best === "(none)" ? buildInfo().bestMove : best,
+        };
+        latest = info;
+        finishSearch(info);
+      }
     }
   };
 
   worker.onerror = (err) => {
     console.error("Stockfish worker error", err);
-    resolver?.({});
-    resolver = null;
-    onInfo = null;
+    finishSearch(buildInfo());
   };
 
   worker.postMessage("uci");
   worker.postMessage("isready");
 
   return {
-    /** Full strength for premium analysis */
     async configureAnalysis() {
       await waitReady();
       worker.postMessage("setoption name Skill Level value 20");
       worker.postMessage("setoption name UCI_LimitStrength value false");
       worker.postMessage("setoption name MultiPV value 2");
       worker.postMessage("setoption name Threads value 1");
-      worker.postMessage("isready");
-      await waitReady();
+      worker.postMessage("setoption name Hash value 64");
+      await pingReady();
     },
-    /** Strength-limited play for bots */
     async configure(skill: number, elo: number) {
       await waitReady();
       const s = Math.max(0, Math.min(20, skill));
@@ -127,8 +168,7 @@ export function createStockfish() {
         worker.postMessage("setoption name UCI_LimitStrength value true");
         worker.postMessage(`setoption name UCI_Elo value ${Math.max(800, Math.min(2850, elo))}`);
       }
-      worker.postMessage("isready");
-      await waitReady();
+      await pingReady();
     },
     setSkill(level: number) {
       worker.postMessage(`setoption name Skill Level value ${Math.max(0, Math.min(20, level))}`);
@@ -142,18 +182,37 @@ export function createStockfish() {
       } = {}
     ): Promise<EngineInfo> {
       await waitReady();
+
+      // If a previous search is still running, stop and wait briefly
+      if (searching) {
+        worker.postMessage("stop");
+        await new Promise((r) => setTimeout(r, 50));
+      }
+
       latest = {};
       lines = {};
       onInfo = opts.onUpdate || null;
+      searching = true;
+
+      const depth = opts.depth ?? 18;
+      // Cap wall-clock so UI never freezes on deep searches
+      const movetime =
+        opts.movetime ??
+        Math.min(12000, Math.max(1200, depth * 280));
+
       return new Promise((resolve) => {
         resolver = resolve;
-        worker.postMessage("stop");
+        searchTimer = setTimeout(() => {
+          // Force finish with whatever we have
+          worker.postMessage("stop");
+          setTimeout(() => {
+            if (resolver) finishSearch(buildInfo());
+          }, 200);
+        }, movetime + 2500);
+
         worker.postMessage(`position fen ${fen}`);
-        if (opts.movetime) {
-          worker.postMessage(`go movetime ${Math.round(opts.movetime)}`);
-        } else {
-          worker.postMessage(`go depth ${opts.depth ?? 18}`);
-        }
+        // depth + movetime: engine returns when either is hit
+        worker.postMessage(`go depth ${depth} movetime ${Math.round(movetime)}`);
       });
     },
     async bestMove(
@@ -164,6 +223,7 @@ export function createStockfish() {
       return info.bestMove;
     },
     dispose() {
+      if (searchTimer) clearTimeout(searchTimer);
       worker.terminate();
     },
   };
@@ -178,7 +238,6 @@ export function uciToMove(uci: string): { from: string; to: string; promotion?: 
   };
 }
 
-/** Convert engine score (side-to-move POV) to white POV centipawns. */
 export function toWhiteEval(turn: "w" | "b", scoreCp?: number, mate?: number): number {
   if (mate !== undefined) {
     const mag = 100000 - Math.abs(mate) * 100;
@@ -191,8 +250,17 @@ export function toWhiteEval(turn: "w" | "b", scoreCp?: number, mate?: number): n
 
 export function formatEval(whiteCp: number): string {
   if (Math.abs(whiteCp) >= 90000) {
-    const mates = whiteCp > 0 ? Math.ceil((100000 - whiteCp) / 100) : -Math.ceil((100000 + whiteCp) / 100);
-    return mates === 0 ? (whiteCp > 0 ? "M1" : "-M1") : whiteCp > 0 ? `M${Math.abs(mates)}` : `-M${Math.abs(mates)}`;
+    const mates =
+      whiteCp > 0
+        ? Math.ceil((100000 - whiteCp) / 100)
+        : -Math.ceil((100000 + whiteCp) / 100);
+    return mates === 0
+      ? whiteCp > 0
+        ? "M1"
+        : "-M1"
+      : whiteCp > 0
+        ? `M${Math.abs(mates)}`
+        : `-M${Math.abs(mates)}`;
   }
   const p = whiteCp / 100;
   return `${p >= 0 ? "+" : ""}${p.toFixed(2)}`;

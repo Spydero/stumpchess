@@ -69,6 +69,16 @@ export default function AnalysisPage() {
   const engineRef = useRef<ReturnType<typeof createStockfish> | null>(null);
   const cancelRef = useRef(false);
   const playTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playingRef = useRef(false);
+  const movesRef = useRef<AnalyzedMove[]>([]);
+  const idxRef = useRef(-1);
+
+  useEffect(() => {
+    movesRef.current = moves;
+  }, [moves]);
+  useEffect(() => {
+    idxRef.current = idx;
+  }, [idx]);
 
   useEffect(() => {
     if (!user) {
@@ -98,75 +108,92 @@ export default function AnalysisPage() {
 
   useEffect(() => () => {
     cancelRef.current = true;
+    playingRef.current = false;
     engineRef.current?.dispose();
     if (playTimer.current) clearTimeout(playTimer.current);
   }, []);
 
-  const runAutoReview = useCallback(async (total: number) => {
-    setAutoReview(true);
-    setPlaying(true);
-    setIdx(-1);
-    await sleep(500);
-    for (let i = 0; i < total; i++) {
-      if (cancelRef.current) break;
-      setIdx(i);
-      await sleep(700);
-    }
-    await sleep(600);
-    setIdx(-1);
+  const stopPlayback = useCallback(() => {
+    playingRef.current = false;
     setPlaying(false);
     setAutoReview(false);
-    setProgress("Review ready. Use the arrows to step through the game.");
+    if (playTimer.current) {
+      clearTimeout(playTimer.current);
+      playTimer.current = null;
+    }
   }, []);
+
+  const runAutoReview = useCallback(
+    async (total: number) => {
+      stopPlayback();
+      setAutoReview(true);
+      playingRef.current = true;
+      setPlaying(true);
+      setIdx(-1);
+      idxRef.current = -1;
+      await sleep(400);
+      for (let i = 0; i < total; i++) {
+        if (cancelRef.current || !playingRef.current) break;
+        setIdx(i);
+        idxRef.current = i;
+        await sleep(650);
+      }
+      await sleep(400);
+      setIdx(-1);
+      idxRef.current = -1;
+      stopPlayback();
+      setProgress("Review ready. Use Back / Forward to step through.");
+    },
+    [stopPlayback]
+  );
 
   async function runAnalysis() {
     cancelRef.current = false;
+    stopPlayback();
     setBusy(true);
     setMoves([]);
+    movesRef.current = [];
     setIdx(-1);
     setLiveDepth(0);
-    setProgress("Starting Stockfish at full strength…");
+    setProgress("Starting Stockfish…");
     try {
       if (!engineRef.current) engineRef.current = createStockfish();
       await engineRef.current.configureAnalysis();
 
       const chess = new Chess();
-      chess.loadPgn(pgn);
+      try {
+        chess.loadPgn(pgn.trim());
+      } catch {
+        throw new Error("Invalid PGN");
+      }
       const history = chess.history({ verbose: true });
       if (!history.length) throw new Error("No moves found in PGN");
       chess.reset();
 
       const analyzed: AnalyzedMove[] = [];
+      // Wall-clock per search so deep depth still progresses
+      const beforeTime = Math.min(10000, Math.max(1500, depth * 250));
+      const afterTime = Math.min(5000, Math.max(800, depth * 120));
 
       for (let i = 0; i < history.length; i++) {
         if (cancelRef.current) break;
-        setProgress(`Deep analysis ${i + 1}/${history.length} · depth ${depth}`);
+        setProgress(`Analyzing move ${i + 1} of ${history.length}…`);
         const fenBefore = chess.fen();
         const turn = chess.turn();
 
         const infoBefore: EngineInfo = await engineRef.current.analyze(fenBefore, {
           depth,
+          movetime: beforeTime,
           onUpdate: (info) => {
             if (info.depth) setLiveDepth(info.depth);
           },
         });
 
         const whiteEvalBefore = toWhiteEval(turn, infoBefore.scoreCp, infoBefore.mate);
-        const whiteSecondBefore = toWhiteEval(
-          turn,
-          infoBefore.secondScoreCp,
-          infoBefore.secondMate
-        );
-        const bestGap = Math.max(0, whiteEvalBefore - whiteSecondBefore);
-        // gap from mover's perspective (higher = only-move)
         const moverBest =
-          turn === "w"
-            ? toWhiteEval("w", infoBefore.scoreCp, infoBefore.mate)
-            : -toWhiteEval("w", infoBefore.scoreCp, infoBefore.mate);
-        const moverSecond =
-          turn === "w"
-            ? toWhiteEval("w", infoBefore.secondScoreCp, infoBefore.secondMate)
-            : -toWhiteEval("w", infoBefore.secondScoreCp, infoBefore.secondMate);
+          turn === "w" ? whiteEvalBefore : -whiteEvalBefore;
+        const moverSecondRaw = toWhiteEval(turn, infoBefore.secondScoreCp, infoBefore.secondMate);
+        const moverSecond = turn === "w" ? moverSecondRaw : -moverSecondRaw;
         const gapForMover = Math.max(0, moverBest - moverSecond);
 
         const mv = history[i];
@@ -175,10 +202,10 @@ export default function AnalysisPage() {
         const isBest = !!bestUci && playedUci === bestUci;
 
         chess.move(mv);
-        const fenAfter = chess.fen();
 
-        const infoAfter = await engineRef.current.analyze(fenAfter, {
-          depth: Math.max(18, depth - 2),
+        const infoAfter = await engineRef.current.analyze(chess.fen(), {
+          depth: Math.min(depth, 22),
+          movetime: afterTime,
           onUpdate: (info) => {
             if (info.depth) setLiveDepth(info.depth);
           },
@@ -206,7 +233,7 @@ export default function AnalysisPage() {
         const classification = classifyMove({
           cpl: loss,
           isBest,
-          bestGap: gapForMover || bestGap,
+          bestGap: gapForMover,
           gained,
           missedWin,
           ply: i + 1,
@@ -216,7 +243,7 @@ export default function AnalysisPage() {
         analyzed.push({
           san: mv.san,
           fenBefore,
-          fenAfter,
+          fenAfter: chess.fen(),
           classification,
           bestMove: bestUci,
           bestSan: bestSanFromUci(fenBefore, bestUci),
@@ -227,55 +254,76 @@ export default function AnalysisPage() {
           ply: i + 1,
         });
 
-        // Live board during analysis
         setMoves([...analyzed]);
+        movesRef.current = analyzed;
         setIdx(i);
+        idxRef.current = i;
       }
 
       setMoves(analyzed);
+      movesRef.current = analyzed;
       setBusy(false);
-      setProgress("Playing review…");
-      await runAutoReview(analyzed.length);
+
+      if (!cancelRef.current && analyzed.length) {
+        setProgress("Playing review…");
+        await runAutoReview(analyzed.length);
+      } else {
+        setProgress(analyzed.length ? "Stopped. You can step through finished moves." : "Stopped.");
+        setIdx(-1);
+      }
     } catch (e) {
+      console.error(e);
       setProgress(e instanceof Error ? e.message : "Failed to analyze PGN");
       setBusy(false);
+      stopPlayback();
     }
   }
 
   function stopAnalysis() {
     cancelRef.current = true;
     setBusy(false);
-    setProgress("Stopped.");
+    stopPlayback();
+    setProgress("Stopped. Use Forward to step through any moves already analyzed.");
   }
 
   function go(delta: number) {
-    if (playing || busy) return;
-    setIdx((i) => Math.max(-1, Math.min(moves.length - 1, i + delta)));
+    stopPlayback();
+    const list = movesRef.current;
+    if (!list.length) return;
+    setIdx((i) => {
+      const next = Math.max(-1, Math.min(list.length - 1, i + delta));
+      idxRef.current = next;
+      return next;
+    });
   }
 
   function togglePlay() {
-    if (!moves.length || busy || autoReview) return;
-    if (playing) {
-      setPlaying(false);
-      if (playTimer.current) clearTimeout(playTimer.current);
+    const list = movesRef.current;
+    if (!list.length || busy) return;
+    if (playingRef.current) {
+      stopPlayback();
       return;
     }
+    playingRef.current = true;
     setPlaying(true);
-    const step = (from: number) => {
-      if (from >= moves.length - 1) {
-        setPlaying(false);
+    const step = () => {
+      if (!playingRef.current) return;
+      const cur = idxRef.current;
+      if (cur >= list.length - 1) {
+        stopPlayback();
         return;
       }
-      const next = from + 1;
+      const next = cur + 1;
+      idxRef.current = next;
       setIdx(next);
-      playTimer.current = setTimeout(() => step(next), 650);
+      playTimer.current = setTimeout(step, 650);
     };
-    const startAt = idx < 0 ? -1 : idx;
-    if (startAt >= moves.length - 1) {
+    if (idxRef.current >= list.length - 1) {
+      idxRef.current = -1;
       setIdx(-1);
-      playTimer.current = setTimeout(() => step(-1), 400);
+      playTimer.current = setTimeout(step, 350);
     } else {
-      step(startAt);
+      playTimer.current = setTimeout(step, 50);
     }
   }
 
@@ -419,23 +467,37 @@ export default function AnalysisPage() {
 
           {moves.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-3">
-              <button type="button" className="btn btn-ghost" onClick={() => setIdx(-1)} disabled={busy || playing}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  stopPlayback();
+                  setIdx(-1);
+                  idxRef.current = -1;
+                }}
+                disabled={busy}
+              >
                 Start
               </button>
-              <button type="button" className="btn btn-ghost" onClick={() => go(-1)} disabled={busy || playing}>
+              <button type="button" className="btn btn-ghost" onClick={() => go(-1)} disabled={busy}>
                 Back
               </button>
-              <button type="button" className="btn btn-accent" onClick={togglePlay} disabled={busy || autoReview}>
-                {playing ? "Pause" : "Play"}
+              <button type="button" className="btn btn-accent" onClick={togglePlay} disabled={busy}>
+                {playing || autoReview ? "Pause" : "Play"}
               </button>
-              <button type="button" className="btn btn-ghost" onClick={() => go(1)} disabled={busy || playing}>
+              <button type="button" className="btn btn-ghost" onClick={() => go(1)} disabled={busy}>
                 Forward
               </button>
               <button
                 type="button"
                 className="btn btn-ghost"
-                onClick={() => setIdx(moves.length - 1)}
-                disabled={busy || playing}
+                onClick={() => {
+                  stopPlayback();
+                  const last = movesRef.current.length - 1;
+                  setIdx(last);
+                  idxRef.current = last;
+                }}
+                disabled={busy}
               >
                 End
               </button>
@@ -513,8 +575,13 @@ export default function AnalysisPage() {
                   className={`text-left px-2 py-2 hover:bg-[var(--panel-hover)] ${
                     row.wi === idx ? "bg-[var(--panel-hover)]" : ""
                   }`}
-                  onClick={() => row.wi !== undefined && setIdx(row.wi)}
-                  disabled={row.wi === undefined || busy || playing}
+                  onClick={() => {
+                    if (row.wi === undefined || busy) return;
+                    stopPlayback();
+                    setIdx(row.wi);
+                    idxRef.current = row.wi;
+                  }}
+                  disabled={row.wi === undefined || busy}
                 >
                   {row.w ? (
                     <span className="inline-flex items-center gap-1 flex-wrap">
@@ -530,8 +597,13 @@ export default function AnalysisPage() {
                   className={`text-left px-2 py-2 hover:bg-[var(--panel-hover)] ${
                     row.bi === idx ? "bg-[var(--panel-hover)]" : ""
                   }`}
-                  onClick={() => row.bi !== undefined && setIdx(row.bi)}
-                  disabled={row.bi === undefined || busy || playing}
+                  onClick={() => {
+                    if (row.bi === undefined || busy) return;
+                    stopPlayback();
+                    setIdx(row.bi);
+                    idxRef.current = row.bi;
+                  }}
+                  disabled={row.bi === undefined || busy}
                 >
                   {row.b ? (
                     <span className="inline-flex items-center gap-1 flex-wrap">
