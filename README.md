@@ -6,14 +6,20 @@ Lightweight chess platform: random matchmaking, live spectating, DMs, board them
 
 - Next.js (Better Auth)
 - Express + Socket.IO (matchmaking, WebRTC signaling, relay fallback)
-- Prisma + SQLite (local). Swap `DATABASE_URL` to Postgres for deploy.
+- Prisma + **PostgreSQL**
 - Client-side Stockfish (analysis + bots)
 
 ## Quick start
 
 ```bash
 cp .env.example .env
-# also copy DATABASE_URL / auth secrets into apps/web/.env.local and apps/server/.env
+# also copy DATABASE_URL / auth secrets into apps/web/.env.local, apps/server/.env, packages/db/.env
+
+# Postgres (pick one):
+pnpm db:up   # Docker Compose → postgresql://stumpchess:stumpchess@localhost:5432/stumpchess
+# or: brew services start postgresql@18 && createdb stumpchess
+#     then set DATABASE_URL=postgresql://localhost:5432/stumpchess
+
 pnpm install
 pnpm db:push
 pnpm db:seed

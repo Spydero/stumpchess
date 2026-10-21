@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -125,14 +125,14 @@ model Game {
   blackId      String?
   white        User?      @relation("WhiteGames", fields: [whiteId], references: [id])
   black        User?      @relation("BlackGames", fields: [blackId], references: [id])
-  pgn          String     @default("")
+  pgn          String     @default("") @db.Text
   fen          String     @default("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
   result       String?
   winnerId     String?
   isBot        Boolean    @default(false)
   botLevel     Int?
   /** Cached Stockfish review JSON. Reused until user re-analyzes. */
-  analysisJson   String?
+  analysisJson   String?  @db.Text
   analysisDepth  Int?
   analyzedAt     DateTime?
   tournamentId   String?
@@ -214,7 +214,7 @@ model ForumThread {
 
 model ForumPost {
   id        String      @id @default(cuid())
-  body      String
+  body      String      @db.Text
   threadId  String
   thread    ForumThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
   authorId  String
@@ -270,7 +270,7 @@ model DirectMessage {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   senderId       String
   sender         User         @relation("MessagesSent", fields: [senderId], references: [id], onDelete: Cascade)
-  body           String
+  body           String       @db.Text
   createdAt      DateTime     @default(now())
 
   @@index([conversationId, createdAt])

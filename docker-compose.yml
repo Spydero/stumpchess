@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: stumpchess
+      POSTGRES_PASSWORD: stumpchess
+      POSTGRES_DB: stumpchess
+    volumes:
+      - stumpchess_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stumpchess -d stumpchess"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  stumpchess_pg:

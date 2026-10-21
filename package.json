@@ -9,6 +9,8 @@
     "db:generate": "pnpm --filter @chess/db generate",
     "db:push": "pnpm --filter @chess/db push",
     "db:seed": "pnpm --filter @chess/db seed",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
     "postinstall": "pnpm db:generate"
   },
   "engines": {
