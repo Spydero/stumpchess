@@ -262,7 +262,7 @@ Do not regress to “puzzle-only” (skipping the mistake replay).
 | `lib/classify.ts` | Classification thresholds |
 
 Flow: Games → Analyze → `analysisJson` on `Game` → Practice mistakes can load that JSON.
-Pasted PGNs (no `gameId`) save to localStorage + an index; `/practice/mistakes` lists both server reviews and local reviews, and Review always offers Practice mistakes.
+`/practice/mistakes` lists **all finished played games** (last 30 days); drills need a Stockfish review (server `analysisJson` or matching local cache). Pasted PGNs are temporary (localStorage index only). Review always offers Practice mistakes.
 
 ---
 

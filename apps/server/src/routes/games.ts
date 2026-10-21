@@ -30,6 +30,7 @@ export function createGamesRouter() {
     await purgeExpiredGames();
     const uid = req.user!.id;
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    // Omit analysisJson here (can be huge); fetch full game by id when reviewing.
     const games = await prisma.game.findMany({
       where: {
         status: "FINISHED",
@@ -38,7 +39,22 @@ export function createGamesRouter() {
       },
       orderBy: { endedAt: "desc" },
       take: 100,
-      include: {
+      select: {
+        id: true,
+        status: true,
+        timeControl: true,
+        result: true,
+        pgn: true,
+        fen: true,
+        isBot: true,
+        botLevel: true,
+        analysisDepth: true,
+        analyzedAt: true,
+        endedAt: true,
+        startedAt: true,
+        createdAt: true,
+        whiteId: true,
+        blackId: true,
         white: { select: { username: true, role: true, image: true } },
         black: { select: { username: true, role: true, image: true } },
       },

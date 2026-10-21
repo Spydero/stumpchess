@@ -37,6 +37,7 @@ type GameRow = {
   black: { username: string } | null;
   result: string | null;
   isBot: boolean;
+  endedAt?: string | null;
 };
 
 type Source =
@@ -52,14 +53,18 @@ function botSideLabel(level: number | null | undefined) {
   return named?.name || "Bot";
 }
 
+function gameHasServerReview(g: GameRow) {
+  return Boolean(g.analyzedAt || g.analysisDepth || g.analysisJson);
+}
+
 function gameLabel(g: GameRow) {
   const white = g.white?.username || (g.isBot && !g.white ? botSideLabel(g.botLevel) : "White");
   const black = g.black?.username || (g.isBot && !g.black ? botSideLabel(g.botLevel) : "Black");
-  return (
-    `${white} vs ${black}` +
-    (g.result ? ` · ${g.result}` : "") +
-    (g.analysisDepth ? ` · d${g.analysisDepth}` : "")
-  );
+  const bits = [`${white} vs ${black}`];
+  if (g.result) bits.push(g.result);
+  if (g.analysisDepth) bits.push(`d${g.analysisDepth}`);
+  else if (!gameHasServerReview(g)) bits.push("needs review");
+  return bits.join(" · ");
 }
 
 function sourceKey(s: Source | null) {
@@ -91,6 +96,7 @@ function MistakesInner() {
   const [drills, setDrills] = useState<StoredAnalyzedMove[] | null>(null);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [pendingAnalyzeId, setPendingAnalyzeId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -102,12 +108,12 @@ function MistakesInner() {
 
   useEffect(() => {
     if (!user || !allowed) return;
-    setLocalEntries(listLocalAnalyses());
 
     const stashed = takeStashedMistakesPgn();
     if (stashed) {
       const local = loadLocalAnalysis(stashed);
       if (local) {
+        saveLocalAnalysis(stashed, local);
         setSource({ kind: "local", hash: hashPgn(stashed) });
         setPaste(stashed);
       } else {
@@ -118,12 +124,20 @@ function MistakesInner() {
 
     apiFetch("/api/games/mine", { userId: user.id })
       .then((list: GameRow[]) => {
-        const reviewed = list.filter((g) => Boolean(g.analysisJson));
-        setGames(reviewed);
-        if (gameIdParam && reviewed.some((g) => g.id === gameIdParam)) {
+        // Every finished game you played (last 30 days) — not only reviewed ones
+        const playable = list.filter((g) => (g.pgn || "").trim().length > 0 || g.result);
+        setGames(playable);
+
+        const gameHashes = new Set(
+          playable.map((g) => (g.pgn?.trim() ? hashPgn(g.pgn) : "")).filter(Boolean)
+        );
+        // Temporary pasted PGNs only — hide locals that already match a played game
+        setLocalEntries(listLocalAnalyses().filter((e) => !gameHashes.has(e.hash)));
+
+        if (gameIdParam && playable.some((g) => g.id === gameIdParam)) {
           setSource({ kind: "game", id: gameIdParam });
-        } else if (!stashed && !gameIdParam && reviewed.length === 1 && !listLocalAnalyses().length) {
-          setSource({ kind: "game", id: reviewed[0].id });
+        } else if (!stashed && !gameIdParam && playable.length === 1) {
+          setSource({ kind: "game", id: playable[0].id });
         }
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load games"));
@@ -133,12 +147,14 @@ function MistakesInner() {
     if (!source) {
       setDrills(null);
       setStatus("");
+      setPendingAnalyzeId(null);
       return;
     }
 
     let cancelled = false;
     setError("");
     setStatus("");
+    setPendingAnalyzeId(null);
 
     async function load() {
       if (!source) return;
@@ -148,12 +164,21 @@ function MistakesInner() {
         try {
           const g: GameRow = await apiFetch(`/api/games/${source.id}`);
           if (cancelled) return;
-          const parsed = parseStoredAnalysis(g.analysisJson);
+
+          let parsed = parseStoredAnalysis(g.analysisJson);
+          if (!parsed && g.pgn?.trim()) {
+            const local = loadLocalAnalysis(g.pgn);
+            if (local) parsed = local;
+          }
+
           if (!parsed) {
             setDrills([]);
-            setError("No saved analysis on this game. Open Review and run Stockfish first.");
+            setPendingAnalyzeId(g.id);
+            setError("This game has no Stockfish review yet. Analyze it, then drills unlock.");
+            setStatus("");
             return;
           }
+
           const next = filterMistakeMoves(parsed.moves);
           setDrills(next);
           setStatus(
@@ -180,13 +205,12 @@ function MistakesInner() {
         setDrills(next);
         setStatus(
           next.length
-            ? `${next.length} positions from local review (d${packed.analysis.depth}).`
+            ? `${next.length} positions from temporary PGN review (d${packed.analysis.depth}).`
             : "No drillable mistakes in this local review."
         );
         return;
       }
 
-      // paste — also index older local caches that predate the review index
       const local = loadLocalAnalysis(source.pgn);
       if (!local) {
         setDrills([]);
@@ -196,7 +220,10 @@ function MistakesInner() {
       saveLocalAnalysis(source.pgn, local);
       const next = filterMistakeMoves(local.moves);
       setDrills(next);
-      setLocalEntries(listLocalAnalyses());
+      const gameHashes = new Set(
+        games.map((g) => (g.pgn?.trim() ? hashPgn(g.pgn) : "")).filter(Boolean)
+      );
+      setLocalEntries(listLocalAnalyses().filter((e) => !gameHashes.has(e.hash)));
       setSource({ kind: "local", hash: hashPgn(source.pgn) });
       setStatus(
         next.length
@@ -209,9 +236,7 @@ function MistakesInner() {
     return () => {
       cancelled = true;
     };
-  }, [source, user]);
-
-  const totalSources = games.length + localEntries.length;
+  }, [source, user, games]);
 
   const selectValue = useMemo(() => sourceKey(source), [source]);
 
@@ -231,7 +256,10 @@ function MistakesInner() {
     saveLocalAnalysis(pgn, local);
     setError("");
     setSource({ kind: "local", hash: hashPgn(pgn) });
-    setLocalEntries(listLocalAnalyses());
+    const gameHashes = new Set(
+      games.map((g) => (g.pgn?.trim() ? hashPgn(g.pgn) : "")).filter(Boolean)
+    );
+    setLocalEntries(listLocalAnalyses().filter((e) => !gameHashes.has(e.hash)));
   }
 
   if (isPending || allowed === null) {
@@ -269,7 +297,7 @@ function MistakesInner() {
           <p className="forum-kicker">VIP · Mistake drills</p>
           <h1>Practice your mistakes</h1>
           <p className="muted ui text-sm mt-2 mb-0 max-w-xl">
-            Drill from reviewed site games or any PGN you analyzed on Review (saved in this browser).
+            Every finished game you played shows here. Pasted PGNs are temporary in this browser.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -284,15 +312,15 @@ function MistakesInner() {
 
       <div className="panel p-4 mb-5 space-y-4">
         <div className="space-y-2">
-          <label className="ui text-sm muted block">Reviewed source</label>
+          <label className="ui text-sm muted block">Your games</label>
           <select
             className="input"
             value={selectValue}
             onChange={(e) => setSource(parseSourceKey(e.target.value))}
           >
-            <option value="">Select a review…</option>
+            <option value="">Select a game…</option>
             {games.length > 0 && (
-              <optgroup label="Your games (server)">
+              <optgroup label="Played (saved)">
                 {games.map((g) => (
                   <option key={g.id} value={`game:${g.id}`}>
                     {gameLabel(g)}
@@ -301,7 +329,7 @@ function MistakesInner() {
               </optgroup>
             )}
             {localEntries.length > 0 && (
-              <optgroup label="Local reviews (pasted PGN)">
+              <optgroup label="Temporary PGN (this browser)">
                 {localEntries.map((e) => (
                   <option key={e.hash} value={`local:${e.hash}`}>
                     {e.label}
@@ -312,32 +340,32 @@ function MistakesInner() {
               </optgroup>
             )}
           </select>
-          {!totalSources && (
+          {!games.length && (
             <p className="ui text-sm muted m-0">
-              No reviews yet.{" "}
-              <Link href="/analysis" className="link-accent">
-                Paste a PGN on Review
+              No finished games yet. Play on{" "}
+              <Link href="/practice" className="link-accent">
+                Practice
+              </Link>{" "}
+              or{" "}
+              <Link href="/play" className="link-accent">
+                Play
               </Link>
-              , run Stockfish, then use Practice mistakes (or the button on Review).
+              , then come back.
             </p>
           )}
-          {games.length === 1 && localEntries.length === 0 && (
+          {games.length > 0 && (
             <p className="ui text-xs muted m-0">
-              Only games with a saved Stockfish review appear here. Finished games without Analyze
-              stay on{" "}
-              <Link href="/games" className="link-accent">
-                Games
-              </Link>
-              . Pasted PGNs show under Local reviews after you analyze them.
+              {games.length} game{games.length === 1 ? "" : "s"} from the last 30 days. Ones marked
+              needs review must be analyzed before drills unlock.
             </p>
           )}
         </div>
 
         <div className="space-y-2">
-          <label className="ui text-sm muted block">Or load a reviewed PGN</label>
+          <label className="ui text-sm muted block">Temporary: paste a reviewed PGN</label>
           <textarea
             className="input min-h-[96px] font-mono text-xs"
-            placeholder="Paste a PGN you already analyzed on Review…"
+            placeholder="Optional. Paste a PGN you already analyzed on Review…"
             value={paste}
             onChange={(e) => setPaste(e.target.value)}
           />
@@ -366,7 +394,16 @@ function MistakesInner() {
           )}
         </div>
 
-        {error && <p className="ui text-sm text-[var(--danger)] m-0">{error}</p>}
+        {error && (
+          <div className="space-y-2">
+            <p className="ui text-sm text-[var(--danger)] m-0">{error}</p>
+            {pendingAnalyzeId && (
+              <Link href={`/analysis?gameId=${pendingAnalyzeId}`} className="btn btn-accent !text-xs">
+                Analyze this game
+              </Link>
+            )}
+          </div>
+        )}
         {status && !error && <p className="ui text-xs muted m-0">{status}</p>}
       </div>
 
