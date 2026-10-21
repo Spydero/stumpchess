@@ -32,16 +32,24 @@ export default function SearchPage() {
       />
       <div className="panel">
         {hits.map((u) => (
-          <Link key={u.id} href={`/u/${u.username}`} className="table-row">
-            <div className="flex items-center gap-3">
+          <div key={u.id} className="table-row ui text-sm">
+            <Link href={`/u/${u.username}`} className="flex items-center gap-3 min-w-0 flex-1">
               {u.image && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={u.image} alt="" className="w-8 h-8 border border-[var(--line)]" />
+                <img src={u.image} alt="" className="w-8 h-8 border border-[var(--line)] shrink-0" />
               )}
-              <span className="ui font-semibold">{u.username}</span>
+              <span className="font-semibold truncate">{u.username}</span>
               {u.role !== "MEMBER" && <RoleBadge role={u.role} />}
-            </div>
-          </Link>
+            </Link>
+            <span className="flex gap-2 shrink-0">
+              <Link href={`/watch?u=${encodeURIComponent(u.username)}`} className="link-accent">
+                Watch
+              </Link>
+              <Link href={`/u/${u.username}`} className="muted">
+                Profile
+              </Link>
+            </span>
+          </div>
         ))}
         {q && !hits.length && <p className="p-4 muted ui text-sm">No users found.</p>}
       </div>

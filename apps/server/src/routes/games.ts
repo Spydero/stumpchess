@@ -45,14 +45,32 @@ export function createGamesRouter() {
     res.json(games);
   });
 
-  /** Human games in progress (for live spectating). Bots excluded. */
-  router.get("/live", async (_req, res) => {
+  /**
+   * Human games in progress (for live spectating). Bots excluded.
+   * Optional ?username= filters to games where that player is white or black
+   * (case-insensitive match, same as DMs / challenge).
+   */
+  router.get("/live", async (req, res) => {
+    const username = String(req.query.username || "").trim();
+    let userId: string | undefined;
+    if (username) {
+      const needle = username.toLowerCase();
+      const all = await prisma.user.findMany({
+        where: { banned: false },
+        select: { id: true, username: true },
+      });
+      const u = all.find((x) => x.username.toLowerCase() === needle);
+      if (!u) return res.json([]);
+      userId = u.id;
+    }
+
     const games = await prisma.game.findMany({
       where: {
         status: "ACTIVE",
         isBot: false,
         whiteId: { not: null },
         blackId: { not: null },
+        ...(userId ? { OR: [{ whiteId: userId }, { blackId: userId }] } : {}),
       },
       orderBy: { startedAt: "desc" },
       take: 40,

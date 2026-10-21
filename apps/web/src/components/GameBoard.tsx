@@ -15,6 +15,7 @@ import {
   personalityThinkMs,
   type Role,
 } from "@chess/shared";
+// isEngineFullStrength used for capped vs Max Stockfish pick
 import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { chooseEngineMove } from "@/lib/bot-personality";
@@ -128,11 +129,13 @@ export function GameBoard(props: Props) {
       }
       let picked: string | undefined;
       if (engineMode) {
-        await engineRef.current.configureEngine(decoded.elo, { multipv: 4 });
+        const full = isEngineFullStrength(decoded.elo);
+        await engineRef.current.configureEngine(decoded.elo, { multipv: full ? 4 : 1 });
         const info = await engineRef.current.analyze(fenBefore, { movetime });
         picked =
-          chooseEngineMove(info.pvs.length ? info.pvs : [{ rank: 1, uci: info.bestMove || "" }]) ||
-          info.bestMove;
+          chooseEngineMove(info.pvs.length ? info.pvs : [{ rank: 1, uci: info.bestMove || "" }], {
+            freeFloat: full,
+          }) || info.bestMove;
       } else {
         await engineRef.current.configure(skill, botElo, { multipv: 1 });
         picked = await engineRef.current.bestMove(fenBefore, { movetime });
@@ -358,12 +361,21 @@ export function GameBoard(props: Props) {
 
   useEffect(() => {
     if (status !== "ACTIVE") return;
+    let lastW = -1;
+    let lastB = -1;
     const id = setInterval(() => {
       const turn = chessRef.current.turn();
-      if (turn === "w") whiteTime.current = Math.max(0, whiteTime.current - 250);
-      else blackTime.current = Math.max(0, blackTime.current - 250);
-      setClocks({ w: whiteTime.current, b: blackTime.current });
-    }, 250);
+      if (turn === "w") whiteTime.current = Math.max(0, whiteTime.current - 100);
+      else blackTime.current = Math.max(0, blackTime.current - 100);
+      // Only re-render when the displayed second changes (~1Hz)
+      const wSec = Math.ceil(whiteTime.current / 1000);
+      const bSec = Math.ceil(blackTime.current / 1000);
+      if (wSec !== lastW || bSec !== lastB) {
+        lastW = wSec;
+        lastB = bSec;
+        setClocks({ w: whiteTime.current, b: blackTime.current });
+      }
+    }, 100);
     return () => clearInterval(id);
   }, [status, fen]);
 

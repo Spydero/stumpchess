@@ -95,9 +95,17 @@ export default function ConversationPage() {
           <h1 className="text-2xl m-0 mt-1">{other?.username || "Chat"}</h1>
         </div>
         {other && (
-          <Link href={`/u/${other.username}`} className="btn btn-ghost !py-1.5 !px-3 !text-sm">
-            Profile
-          </Link>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <Link
+              href={`/watch?u=${encodeURIComponent(other.username)}`}
+              className="btn btn-ghost !py-1.5 !px-3 !text-sm"
+            >
+              Watch games
+            </Link>
+            <Link href={`/u/${other.username}`} className="btn btn-ghost !py-1.5 !px-3 !text-sm">
+              Profile
+            </Link>
+          </div>
         )}
       </div>
 

@@ -275,7 +275,7 @@ export function personalityThinkMs(opts: {
   return { movetime, minDelay };
 }
 
-/** Stockfish lane: scales with TC + Elo (Max thinks longest). */
+/** Stockfish lane: scales with TC + Elo (Max thinks longest). Always pauses so it feels like analysis. */
 export function engineThinkMs(opts: {
   initialMs: number;
   elo?: number;
@@ -283,17 +283,19 @@ export function engineThinkMs(opts: {
   const minutes = opts.initialMs / 60_000;
   const full = isEngineFullStrength(opts.elo ?? ENGINE_ELO_FULL);
   const elo = full ? ENGINE_ELO_MAX : clampEngineElo(opts.elo ?? ENGINE_ELO_MAX);
+  // Longer budgets so capped Elo still gets a real search (UCI_Elo needs depth to behave).
   const base =
-    minutes <= 1 ? 1200 : minutes <= 3 ? 2800 : minutes <= 5 ? 4500 : minutes <= 10 ? 7000 : 10_000;
+    minutes <= 1 ? 1800 : minutes <= 3 ? 3500 : minutes <= 5 ? 5500 : minutes <= 10 ? 8500 : 12_000;
   const strengthBonus = full
     ? minutes <= 3
-      ? 1200
-      : 2500
-    : Math.round(((elo - ENGINE_ELO_MIN) / (ENGINE_ELO_MAX - ENGINE_ELO_MIN)) * (minutes <= 3 ? 1000 : 2200));
-  const movetime = Math.min(20_000, Math.max(700, base + strengthBonus));
+      ? 1500
+      : 3000
+    : Math.round(((elo - ENGINE_ELO_MIN) / (ENGINE_ELO_MAX - ENGINE_ELO_MIN)) * (minutes <= 3 ? 1400 : 2800));
+  const movetime = Math.min(22_000, Math.max(1200, base + strengthBonus));
+  // Floor pause so it never snaps even if the worker returns early under LimitStrength.
   const minDelay = Math.min(
     movetime,
-    minutes <= 1 ? 800 : minutes <= 3 ? 1400 : minutes <= 5 ? 2200 : 3000
+    minutes <= 1 ? 1100 : minutes <= 3 ? 1800 : minutes <= 5 ? 2800 : minutes <= 10 ? 3500 : 4200
   );
   return { movetime, minDelay };
 }

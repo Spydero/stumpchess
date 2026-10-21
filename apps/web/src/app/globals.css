@@ -86,7 +86,8 @@ body {
     radial-gradient(ellipse 90% 55% at 50% -18%, var(--glow), transparent 58%),
     radial-gradient(ellipse 50% 40% at 100% 100%, color-mix(in srgb, var(--board-dark) 14%, transparent), transparent 50%),
     var(--bg);
-  font-family: var(--font-body), "Palatino Linotype", Palatino, Georgia, serif;
+  /* --font-display from next/font; body uses the same face */
+  font-family: var(--font-display), "Palatino Linotype", Palatino, Georgia, serif;
   -webkit-font-smoothing: antialiased;
 }
 

@@ -709,14 +709,14 @@ export function PracticeBoard({
       let picked: string | undefined;
 
       if (engineMode) {
-        // Stockfish: deeper MultiPV, free-float among near-equal best moves
-        await playEngine.current.configureEngine(engElo, { multipv: 4 });
+        // Capped Elo: MultiPV 1 + PV1 only (truer to UCI_Elo). Max: MultiPV float.
+        const full = isEngineFullStrength(engElo);
+        await playEngine.current.configureEngine(engElo, { multipv: full ? 4 : 1 });
         if (myGen !== botGen.current) return;
         const info = await playEngine.current.analyze(fenBefore, { movetime });
         if (myGen !== botGen.current) return;
-        picked =
-          chooseEngineMove(info.pvs.length ? info.pvs : [{ rank: 1, uci: info.bestMove || "" }]) ||
-          info.bestMove;
+        const lines = info.pvs.length ? info.pvs : [{ rank: 1, uci: info.bestMove || "" }];
+        picked = chooseEngineMove(lines, { freeFloat: full }) || info.bestMove;
       } else {
         const style = "style" in bot ? bot.style : "balanced";
         const useStyle = style !== "balanced";

@@ -11,7 +11,7 @@ Human-facing overview: [`README.md`](README.md). This file is for agents.
 **stumpchess** — small club chess site:
 
 - Online play (matchmaking + challenges + WebRTC with socket relay fallback)
-- **Watch** live human games (spectators: no engine during play)
+- **Watch** live human games (chess.com-style: find any player via search / DMs / profile `?u=`, or browse all live; spectators: no engine during play)
 - **Tournaments** (Swiss): host with VIP+ or `TOURNAMENT_HOST`; LTA+ assigns roles
 - Direct **Messages** between users
 - Board themes in **Settings** (plus site light/dark)
@@ -62,7 +62,7 @@ chess-platform/
 ```bash
 pnpm install
 pnpm db:push && pnpm db:seed
-pnpm dev                          # web + server
+pnpm dev                          # web (Turbopack) + server
 pnpm --filter @chess/shared build # after editing packages/shared/src
 cd apps/web && node scripts/copy-engine.mjs   # copy SF WASM into public/engines
 cd apps/web && pnpm build-openings           # rebuild openings-book.json from TSV
@@ -97,7 +97,7 @@ VIP check: `hasVipAccess(role, vipExpiresAt)` in shared; web helper `apps/web/sr
 |------|------|--------|
 | `/` | `app/page.tsx` | Home |
 | `/play` | `app/play/page.tsx` | Queue, vs computer, challenge |
-| `/watch` | `app/watch/page.tsx` | Live human games lobby → spectate `/game/[id]` |
+| `/watch` | `app/watch/page.tsx` | Live lobby + player filter (`?u=username`); CTAs from profile / DMs / search → spectate `/game/[id]` |
 | `/tournaments`, `/tournaments/[id]` | tournament pages | Swiss events, standings, pairings |
 | `/messages`, `/messages/[id]` | messages pages | DMs inbox + thread |
 | `/settings` | `app/settings/page.tsx` | Site theme + board theme |
@@ -323,6 +323,8 @@ Owner avatar asset: `public/avatars/tree-stump.jpg` (seed sets `image`). Fallbac
 - [ ] Cancel bot/coach gens on takeback / new game / unmount.
 - [ ] Never commit `.env`, `*.db`, or large `public/engines/*.wasm` (gitignored).
 - [ ] Openings explorer must stay offline (vendored ECO book). Do not call Lichess explorer APIs.
+- [ ] Watch / profile live lists: poll with a content signature; never `setState` when unchanged.
+- [ ] Game / Practice clocks: tick refs often, `setClocks` only when the displayed second changes (~1Hz).
 
 ---
 
@@ -345,6 +347,7 @@ Owner avatar asset: `public/avatars/tree-stump.jpg` (seed sets `image`). Fallbac
 - No Stockfish / eval / Analysis during live spectating.
 - Analyze is allowed only after `FINISHED` (existing VIP `/analysis`).
 - Human moves always go through socket relay (even if WebRTC is up) so spectators + DB stay synced.
+- **Watch any player** (chess.com-style): `GET /api/games/live?username=` (case-insensitive); profile returns `liveGames`; entry points `/watch?u=`, profile **Watch games**, DM thread / inbox **Watch**, search **Watch**. Soft poll (~10–12s) + `liveSig` / `profileSig` so unchanged payloads do not re-render.
 
 ## Deferred / not shipped
 

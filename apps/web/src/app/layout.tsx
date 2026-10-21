@@ -11,12 +11,6 @@ const display = Libre_Baskerville({
   weight: ["400", "700"],
 });
 
-const body = Libre_Baskerville({
-  variable: "--font-body",
-  subsets: ["latin"],
-  weight: ["400", "700"],
-});
-
 const ui = Source_Sans_3({
   variable: "--font-ui",
   subsets: ["latin"],
@@ -38,7 +32,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           }}
         />
       </head>
-      <body className={`${display.variable} ${body.variable} ${ui.variable}`}>
+      <body className={`${display.variable} ${ui.variable}`}>
         <ThemeProvider>
           <BoardThemeProvider>
             <Nav />

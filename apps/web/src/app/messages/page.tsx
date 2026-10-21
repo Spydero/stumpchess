@@ -95,8 +95,8 @@ export default function MessagesPage() {
           </div>
         ) : (
           rows.map((r) => (
-            <Link key={r.id} href={`/messages/${r.id}`} className="table-row ui text-sm">
-              <span className="min-w-0">
+            <div key={r.id} className="table-row ui text-sm">
+              <Link href={`/messages/${r.id}`} className="min-w-0 flex-1">
                 <span className="font-semibold">
                   {r.other?.username || "Unknown"}
                   {r.unread ? <span className="unread-dot" aria-label="Unread" /> : null}
@@ -104,8 +104,17 @@ export default function MessagesPage() {
                 {r.lastMessage && (
                   <span className="block muted truncate text-xs mt-0.5">{r.lastMessage.body}</span>
                 )}
-              </span>
-              <span className="muted shrink-0 text-xs">
+              </Link>
+              <span className="muted shrink-0 text-xs flex items-center gap-2">
+                {r.other?.username ? (
+                  <Link
+                    href={`/watch?u=${encodeURIComponent(r.other.username)}`}
+                    className="link-accent"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Watch
+                  </Link>
+                ) : null}
                 {r.lastMessage
                   ? new Date(r.lastMessage.createdAt).toLocaleString(undefined, {
                       month: "short",
@@ -115,7 +124,7 @@ export default function MessagesPage() {
                     })
                   : ""}
               </span>
-            </Link>
+            </div>
           ))
         )}
       </div>

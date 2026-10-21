@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/auth-client";
 import { RoleBadge } from "@/components/RoleBadge";
+
+type LiveGame = {
+  id: string;
+  timeControl: string;
+  startedAt: string | null;
+  white: { username: string; role: string } | null;
+  black: { username: string; role: string } | null;
+};
 
 type Profile = {
   username: string;
@@ -17,6 +25,7 @@ type Profile = {
   losses?: number;
   draws?: number;
   createdAt?: string;
+  liveGames?: LiveGame[];
   games: Array<{
     id: string;
     result: string | null;
@@ -27,6 +36,12 @@ type Profile = {
   }>;
 };
 
+function profileSig(p: Profile) {
+  const live = (p.liveGames || []).map((g) => g.id).join(",");
+  const done = p.games.map((g) => `${g.id}:${g.result || ""}`).join(",");
+  return `${live}|${done}|${p.wins}|${p.losses}|${p.draws}`;
+}
+
 export default function ProfilePage() {
   const { username } = useParams<{ username: string }>();
   const router = useRouter();
@@ -35,12 +50,28 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState("");
   const [messaging, setMessaging] = useState(false);
+  const sigRef = useRef("");
+
+  const load = useCallback(async () => {
+    try {
+      const next: Profile = await apiFetch(`/api/users/${username}`);
+      const sig = profileSig(next);
+      if (sig === sigRef.current) return;
+      sigRef.current = sig;
+      setProfile(next);
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    }
+  }, [username]);
 
   useEffect(() => {
-    apiFetch(`/api/users/${username}`)
-      .then(setProfile)
-      .catch((e) => setError(e.message));
-  }, [username]);
+    sigRef.current = "";
+    setProfile(null);
+    void load();
+    const id = setInterval(() => void load(), 12_000);
+    return () => clearInterval(id);
+  }, [username, load]);
 
   async function messageUser() {
     if (!me) return router.push("/login");
@@ -63,12 +94,12 @@ export default function ProfilePage() {
   if (!profile) return <p className="pulse-soft ui muted">Loading…</p>;
 
   const isSelf =
-    me &&
-    (me.username === profile.username || me.name === profile.username);
+    me && (me.username === profile.username || me.name === profile.username);
+  const live = profile.liveGames || [];
 
   return (
     <div className="max-w-2xl">
-      <div className="panel p-5 mb-5 flex gap-4 items-center">
+      <div className="panel p-5 mb-5 flex gap-4 items-center flex-wrap">
         {profile.image && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={profile.image} alt="" className="w-14 h-14 border border-[var(--line)]" />
@@ -78,6 +109,12 @@ export default function ProfilePage() {
           <div className="flex items-center gap-2 mt-1.5">
             {profile.role !== "MEMBER" && <RoleBadge role={profile.role} />}
             {profile.displayLabel && <span className="ui text-sm muted">{profile.displayLabel}</span>}
+            {live.length > 0 && (
+              <span className="ui text-xs flex items-center gap-1.5">
+                <span className="live-dot" aria-hidden />
+                Playing
+              </span>
+            )}
           </div>
           {!profile.hideStats ? (
             <p className="mt-2 ui text-sm muted m-0">
@@ -89,17 +126,47 @@ export default function ProfilePage() {
           ) : null}
           {error && <p className="text-[var(--danger)] ui text-xs mt-2 mb-0">{error}</p>}
         </div>
-        {!isSelf && (
-          <button
-            type="button"
-            className="btn btn-accent !py-1.5 !px-3 !text-sm shrink-0"
-            onClick={messageUser}
-            disabled={messaging}
+        <div className="flex flex-wrap gap-2 shrink-0">
+          <Link
+            href={`/watch?u=${encodeURIComponent(profile.username)}`}
+            className="btn btn-ghost !py-1.5 !px-3 !text-sm"
           >
-            {messaging ? "…" : "Message"}
-          </button>
-        )}
+            Watch games
+          </Link>
+          {!isSelf && (
+            <button
+              type="button"
+              className="btn btn-accent !py-1.5 !px-3 !text-sm"
+              onClick={messageUser}
+              disabled={messaging}
+            >
+              {messaging ? "…" : "Message"}
+            </button>
+          )}
+        </div>
       </div>
+
+      {live.length > 0 && (
+        <>
+          <h2 className="text-xl mb-3 flex items-center gap-2">
+            <span className="live-dot" aria-hidden />
+            Live
+          </h2>
+          <div className="panel mb-5">
+            {live.map((g) => (
+              <Link key={g.id} href={`/game/${g.id}`} className="table-row ui text-sm">
+                <span>
+                  {g.white?.username || "?"} vs {g.black?.username || "?"}
+                </span>
+                <span className="muted shrink-0 flex items-center gap-2">
+                  {g.timeControl}
+                  <span className="link-accent">Spectate</span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
 
       <h2 className="text-xl mb-3">Games</h2>
       <div className="panel">

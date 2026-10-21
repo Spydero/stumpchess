@@ -68,23 +68,44 @@ export function createUsersRouter() {
     }
 
     const isOwner = user.username === OWNER_USERNAME || user.role === "OWNER";
-    const games = await prisma.game.findMany({
-      where: {
-        status: "FINISHED",
-        OR: [{ whiteId: user.id }, { blackId: user.id }],
-      },
-      orderBy: { endedAt: "desc" },
-      take: 20,
-      select: {
-        id: true,
-        result: true,
-        timeControl: true,
-        endedAt: true,
-        isBot: true,
-        white: { select: { username: true, role: true } },
-        black: { select: { username: true, role: true } },
-      },
-    });
+
+    const [liveGames, games] = await Promise.all([
+      prisma.game.findMany({
+        where: {
+          status: "ACTIVE",
+          isBot: false,
+          OR: [{ whiteId: user.id }, { blackId: user.id }],
+          whiteId: { not: null },
+          blackId: { not: null },
+        },
+        orderBy: { startedAt: "desc" },
+        take: 10,
+        select: {
+          id: true,
+          timeControl: true,
+          startedAt: true,
+          white: { select: { username: true, role: true } },
+          black: { select: { username: true, role: true } },
+        },
+      }),
+      prisma.game.findMany({
+        where: {
+          status: "FINISHED",
+          OR: [{ whiteId: user.id }, { blackId: user.id }],
+        },
+        orderBy: { endedAt: "desc" },
+        take: 20,
+        select: {
+          id: true,
+          result: true,
+          timeControl: true,
+          endedAt: true,
+          isBot: true,
+          white: { select: { username: true, role: true } },
+          black: { select: { username: true, role: true } },
+        },
+      }),
+    ]);
 
     if (isOwner) {
       return res.json({
@@ -94,6 +115,7 @@ export function createUsersRouter() {
         image: user.image,
         displayLabel: "Owner",
         hideStats: true,
+        liveGames,
         games,
       });
     }
@@ -102,6 +124,7 @@ export function createUsersRouter() {
       ...user,
       hideStats: false,
       displayLabel: null,
+      liveGames,
       games,
     });
   });
