@@ -12,6 +12,7 @@ import { createForumRouter } from "./routes/forum";
 import { createUsersRouter } from "./routes/users";
 import { createGamesRouter } from "./routes/games";
 import { createAdminRouter } from "./routes/admin";
+import { createMessagesRouter } from "./routes/messages";
 import { Matchmaking } from "./matchmaking";
 
 dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
@@ -35,6 +36,7 @@ app.use("/api/forum", createForumRouter());
 app.use("/api/users", createUsersRouter());
 app.use("/api/games", createGamesRouter());
 app.use("/api/admin", createAdminRouter());
+app.use("/api/messages", createMessagesRouter());
 
 app.get("/api/me/vip", async (req, res) => {
   const userId = String(req.headers["x-user-id"] || "");
@@ -179,6 +181,58 @@ io.on("connection", (socket) => {
       socket.to(`game:${payload.gameId}`).emit("game:move", payload);
       if (ended) {
         io.to(`game:${payload.gameId}`).emit("game:ended", { result, winnerId, fen: chess.fen() });
+      }
+    }
+  );
+
+  socket.on("dm:subscribe", () => {
+    const meta = sockets.get(socket.id);
+    if (!meta) return;
+    socket.join(`user:${meta.userId}`);
+  });
+
+  socket.on(
+    "dm:send",
+    async (payload: { conversationId: string; body: string }) => {
+      const meta = sockets.get(socket.id);
+      if (!meta || !payload?.conversationId) return;
+      const body = String(payload.body || "").trim();
+      if (!body || body.length > 2000) return;
+
+      const part = await prisma.conversationParticipant.findUnique({
+        where: {
+          conversationId_userId: {
+            conversationId: payload.conversationId,
+            userId: meta.userId,
+          },
+        },
+      });
+      if (!part) return;
+
+      const msg = await prisma.directMessage.create({
+        data: {
+          conversationId: payload.conversationId,
+          senderId: meta.userId,
+          body,
+        },
+        include: { sender: { select: { id: true, username: true } } },
+      });
+
+      await prisma.conversation.update({
+        where: { id: payload.conversationId },
+        data: { updatedAt: new Date() },
+      });
+
+      const peers = await prisma.conversationParticipant.findMany({
+        where: { conversationId: payload.conversationId },
+        select: { userId: true },
+      });
+
+      for (const p of peers) {
+        io.to(`user:${p.userId}`).emit("dm:message", {
+          conversationId: payload.conversationId,
+          message: msg,
+        });
       }
     }
   );

@@ -35,11 +35,11 @@ export default function HomePage() {
           <Link href="/play" className="btn btn-accent">
             Play
           </Link>
+          <Link href="/watch" className="btn btn-ghost">
+            Watch
+          </Link>
           <Link href="/openings" className="btn btn-ghost">
             Openings
-          </Link>
-          <Link href="/play#bot" className="btn btn-ghost">
-            vs Computer
           </Link>
           <Link href="/practice" className="btn btn-ghost">
             Practice
@@ -95,11 +95,11 @@ export default function HomePage() {
           })}
         </div>
         <div className="mt-3 flex gap-2">
-          <Link href="/openings" className="btn btn-ghost flex-1 !text-sm">
-            Openings
+          <Link href="/watch" className="btn btn-ghost flex-1 !text-sm">
+            Watch
           </Link>
-          <Link href="/leaders" className="btn btn-ghost flex-1 !text-sm">
-            Leaders
+          <Link href="/settings" className="btn btn-ghost flex-1 !text-sm">
+            Settings
           </Link>
         </div>
       </section>

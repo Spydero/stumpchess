@@ -113,11 +113,21 @@ export default function GamePage() {
     game.black?.username ||
     (isBot && game.blackId === user.id ? "You" : isBot && !game.blackId ? botLabel : "Black");
 
+  const isSpectator = !isParticipant && !isBot;
+
   return (
     <div>
       <h1 className="text-xl sm:text-2xl mb-1 ui font-semibold">
         {whiteName} vs {blackName}
+        {isSpectator && game.status === "ACTIVE" ? (
+          <span className="ui text-sm font-normal muted ml-2">· Spectating</span>
+        ) : null}
       </h1>
+      {isSpectator && game.status === "ACTIVE" && (
+        <p className="ui text-xs muted mb-3">
+          Live watch mode. Engine analysis stays off until the game ends.
+        </p>
+      )}
       {isBot && (
         <p className="ui text-sm muted mb-4">
           {named ? (

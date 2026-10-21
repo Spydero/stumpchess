@@ -91,13 +91,17 @@ export function GameBoard(props: Props) {
     setOptionSquares(styles);
   }, []);
 
+  const isSpectator = myColor === null;
+
   const sendMove = useCallback(
     (payload: Record<string, unknown>) => {
+      if (props.isBot) return;
+      // Always relay so DB + spectators stay in sync (WebRTC alone skips the room).
+      getSocket().emit("game:move", payload);
       if (dcRef.current?.readyState === "open") {
         dcRef.current.send(JSON.stringify({ type: "move", ...payload }));
         setTransport("webrtc");
-      } else if (!props.isBot) {
-        getSocket().emit("game:move", payload);
+      } else {
         setTransport("relay");
       }
     },
@@ -241,7 +245,7 @@ export function GameBoard(props: Props) {
     s.on("game:move", onMove);
     s.on("game:ended", onEnded);
 
-    if (!props.isBot && opponentId && myColor) {
+    if (!props.isBot && opponentId && myColor && !isSpectator) {
       const polite = myColor === "w";
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -489,9 +493,16 @@ export function GameBoard(props: Props) {
           <p className="ui text-sm muted mb-2">Direct connection</p>
         )}
 
+        {isSpectator && status === "ACTIVE" && (
+          <p className="ui text-sm mb-3 px-2 py-1.5 rounded-sm border border-[var(--line)] bg-[var(--bg-raised)]">
+            Spectating · live analysis disabled
+          </p>
+        )}
+
         {status === "FINISHED" && (
           <div className="mb-4 space-y-3">
             <p className="text-lg ui m-0">Result: {result}</p>
+            {/* Spectators may analyze only after the game ends (not during live play). */}
             {canAnalyze ? (
               <Link
                 href="/analysis"

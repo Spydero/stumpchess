@@ -44,6 +44,25 @@ export function createGamesRouter() {
     res.json(games);
   });
 
+  /** Human games in progress (for live spectating). Bots excluded. */
+  router.get("/live", async (_req, res) => {
+    const games = await prisma.game.findMany({
+      where: {
+        status: "ACTIVE",
+        isBot: false,
+        whiteId: { not: null },
+        blackId: { not: null },
+      },
+      orderBy: { startedAt: "desc" },
+      take: 40,
+      include: {
+        white: { select: { id: true, username: true, role: true, image: true } },
+        black: { select: { id: true, username: true, role: true, image: true } },
+      },
+    });
+    res.json(games);
+  });
+
   router.get("/:id", async (req, res) => {
     const game = await prisma.game.findUnique({
       where: { id: param(req, "id") },

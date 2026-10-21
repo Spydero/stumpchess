@@ -1,6 +1,6 @@
 # stumpchess
 
-Lightweight chess platform: random matchmaking, openings explorer (local ECO book), classic forum, roles (VIP / STA / LTA / Manager / Owner), and **VIP-only** full analysis powered by Stockfish in the browser.
+Lightweight chess platform: random matchmaking, live spectating, DMs, board themes, openings explorer (local ECO book), classic forum, roles (VIP / STA / LTA / Manager / Owner), and **VIP-only** full analysis powered by Stockfish in the browser.
 
 **AI / new chat:** start by reading [`AGENTS.md`](AGENTS.md) (full file map, bot lanes, Practice invariants, pitfalls).
 
@@ -56,6 +56,12 @@ Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` / `apps/web/.env.loc
 | LTA (blue) | Assign VIP/STA |
 | Manager | High staff |
 | Owner (`jOjo`) | All; public stats hidden |
+
+## Watch / Messages / Settings
+
+- **`/watch`**: live human games; spectate with no engine during play.
+- **`/messages`**: direct messages (also Message on profiles).
+- **`/settings`**: site light/dark + Chess.com-style board themes (local device).
 
 ## Openings
 

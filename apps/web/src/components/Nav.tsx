@@ -9,9 +9,11 @@ import { useTheme } from "./ThemeProvider";
 
 const LINKS = [
   { href: "/play", label: "Play" },
+  { href: "/watch", label: "Watch" },
   { href: "/openings", label: "Openings" },
   { href: "/practice", label: "Practice" },
   { href: "/games", label: "Games" },
+  { href: "/messages", label: "Messages" },
   { href: "/leaders", label: "Leaders" },
   { href: "/forum", label: "Forum" },
   { href: "/analysis", label: "Analysis" },
@@ -58,6 +60,9 @@ export function Nav() {
               >
                 <span>{user.username || user.name}</span>
                 {user.role && user.role !== "MEMBER" && <RoleBadge role={user.role} />}
+              </Link>
+              <Link href="/settings" className="px-2 muted hover:text-[var(--ink)]">
+                Settings
               </Link>
               {isStaff && (
                 <Link href="/admin" className="px-2 muted hover:text-[var(--ink)]">
@@ -127,6 +132,9 @@ export function Nav() {
                 >
                   {user.username || user.name}
                   {user.role && user.role !== "MEMBER" && <RoleBadge role={user.role} />}
+                </Link>
+                <Link href="/settings" className="py-2.5 border-b border-[var(--line)]" onClick={() => setOpen(false)}>
+                  Settings
                 </Link>
                 {isStaff && (
                   <Link href="/admin" className="py-2.5 border-b border-[var(--line)]" onClick={() => setOpen(false)}>
