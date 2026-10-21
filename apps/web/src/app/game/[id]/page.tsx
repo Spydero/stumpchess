@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
+import { botEloFromSkill, botPresetBySkill } from "@chess/shared";
 import { useSession } from "@/lib/auth-client";
 import { apiFetch } from "@/lib/api";
 import { GameBoard } from "@/components/GameBoard";
@@ -25,7 +26,11 @@ export default function GamePage() {
   const search = useSearchParams();
   const router = useRouter();
   const { data, isPending } = useSession();
-  const user = data?.user as { id: string } | undefined;
+  const user = data?.user as {
+    id: string;
+    role?: string;
+    vipExpiresAt?: string | null;
+  } | undefined;
   const [game, setGame] = useState<Game | null>(null);
   const [error, setError] = useState("");
   const [accepting, setAccepting] = useState(false);
@@ -42,11 +47,10 @@ export default function GamePage() {
     if (!user) return router.push("/login");
     setAccepting(true);
     try {
-      const updated = await apiFetch(`/api/games/${params.id}/accept`, {
+      await apiFetch(`/api/games/${params.id}/accept`, {
         method: "POST",
         userId: user.id,
       });
-      setGame((g) => (g ? { ...g, ...updated } : g));
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
@@ -65,13 +69,18 @@ export default function GamePage() {
 
   const isBot = game.isBot || search.get("bot") === "1";
   const isParticipant = user.id === game.whiteId || user.id === game.blackId;
+  const skill = game.botLevel ?? 5;
+  const bot = botPresetBySkill(skill);
+  const elo = botEloFromSkill(skill);
+  const botLabel = `Bot ${elo}`;
 
   if (game.status === "WAITING") {
     return (
       <div className="panel p-5 max-w-lg">
         <h1 className="text-2xl mb-2">Challenge</h1>
         <p className="ui muted mb-4">
-          {game.white?.username || "White"} vs {game.black?.username || "Black"} ({game.initialMs / 60000}+0)
+          {game.white?.username || "White"} vs {game.black?.username || "Black"} (
+          {game.initialMs / 60000}+0)
         </p>
         {isParticipant ? (
           <button type="button" className="btn btn-accent" onClick={accept} disabled={accepting}>
@@ -85,23 +94,36 @@ export default function GamePage() {
     );
   }
 
+  const whiteName =
+    game.white?.username ||
+    (isBot && game.whiteId === user.id ? "You" : isBot && !game.whiteId ? botLabel : "White");
+  const blackName =
+    game.black?.username ||
+    (isBot && game.blackId === user.id ? "You" : isBot && !game.blackId ? botLabel : "Black");
+
   return (
     <div>
-      <h1 className="text-xl sm:text-2xl mb-4 ui font-semibold">
-        {game.white?.username || (isBot && game.whiteId === user.id ? "You" : "White")} vs{" "}
-        {game.black?.username || (isBot ? `Bot ${game.botLevel ?? 5}` : "Black")}
+      <h1 className="text-xl sm:text-2xl mb-1 ui font-semibold">
+        {whiteName} vs {blackName}
       </h1>
+      {isBot && (
+        <p className="ui text-sm muted mb-4">
+          {elo} Elo · {bot.label}
+        </p>
+      )}
       <GameBoard
         gameId={game.id}
         userId={user.id}
+        userRole={user.role}
+        vipExpiresAt={user.vipExpiresAt}
         initialFen={game.fen}
         whiteId={game.whiteId}
         blackId={game.blackId}
-        whiteName={game.white?.username || (isBot && game.whiteId === user.id ? "You" : "White")}
-        blackName={game.black?.username || (isBot ? `Bot ${game.botLevel ?? 5}` : "Black")}
+        whiteName={whiteName}
+        blackName={blackName}
         initialMs={game.initialMs}
         isBot={isBot}
-        botLevel={game.botLevel ?? 5}
+        botLevel={skill}
         status={game.status}
         result={game.result}
       />

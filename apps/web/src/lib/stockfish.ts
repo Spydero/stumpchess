@@ -10,7 +10,6 @@ export type EngineInfo = {
 
 /**
  * Stockfish Web Worker from same origin (public/engines/stockfish.js).
- * Cross-origin Worker URLs are blocked by browsers.
  */
 export function createStockfish() {
   const worker = new Worker("/engines/stockfish.js");
@@ -67,21 +66,42 @@ export function createStockfish() {
   worker.postMessage("isready");
 
   return {
+    async configure(skill: number, elo: number) {
+      await waitReady();
+      const s = Math.max(0, Math.min(20, skill));
+      worker.postMessage(`setoption name Skill Level value ${s}`);
+      // Limit strength when available (Stockfish multi-variant / modern builds)
+      worker.postMessage("setoption name UCI_LimitStrength value true");
+      worker.postMessage(`setoption name UCI_Elo value ${Math.max(800, Math.min(3000, elo))}`);
+      worker.postMessage("isready");
+      await waitReady();
+    },
     setSkill(level: number) {
       worker.postMessage(`setoption name Skill Level value ${Math.max(0, Math.min(20, level))}`);
     },
-    async analyze(fen: string, depth = 12): Promise<EngineInfo> {
+    async analyze(
+      fen: string,
+      opts: { depth?: number; movetime?: number } = {}
+    ): Promise<EngineInfo> {
       await waitReady();
       latest = {};
       return new Promise((resolve) => {
         resolver = resolve;
+        worker.postMessage("stop");
         worker.postMessage("ucinewgame");
         worker.postMessage(`position fen ${fen}`);
-        worker.postMessage(`go depth ${depth}`);
+        if (opts.movetime) {
+          worker.postMessage(`go movetime ${Math.round(opts.movetime)}`);
+        } else {
+          worker.postMessage(`go depth ${opts.depth ?? 12}`);
+        }
       });
     },
-    async bestMove(fen: string, depth = 10): Promise<string | undefined> {
-      const info = await this.analyze(fen, depth);
+    async bestMove(
+      fen: string,
+      opts: { depth?: number; movetime?: number } = {}
+    ): Promise<string | undefined> {
+      const info = await this.analyze(fen, opts);
       return info.bestMove;
     },
     dispose() {

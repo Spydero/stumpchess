@@ -75,12 +75,24 @@ export default function AnalysisPage() {
       .catch(() => setAllowed(false));
   }, [user]);
 
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem("stumpchess-analyze-pgn");
+      if (stored) {
+        setPgn(stored);
+        sessionStorage.removeItem("stumpchess-analyze-pgn");
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => () => engineRef.current?.dispose(), []);
 
   async function runAnalysis() {
     setBusy(true);
     setMoves([]);
-    setProgress("Loading engine on your device…");
+    setProgress("Loading engine…");
     try {
       if (!engineRef.current) engineRef.current = createStockfish();
       const chess = new Chess();
@@ -92,9 +104,9 @@ export default function AnalysisPage() {
       let prevEval = 0;
 
       for (let i = 0; i < history.length; i++) {
-        setProgress(`Analyzing move ${i + 1}/${history.length} (your CPU)…`);
+        setProgress(`Analyzing move ${i + 1}/${history.length}…`);
         const fenBefore = chess.fen();
-        const infoBefore: EngineInfo = await engineRef.current.analyze(fenBefore, 12);
+        const infoBefore: EngineInfo = await engineRef.current.analyze(fenBefore, { depth: 12 });
         const bestUci = infoBefore.bestMove;
         const evalBefore =
           infoBefore.mate !== undefined
@@ -109,7 +121,7 @@ export default function AnalysisPage() {
         const mv = history[i];
         chess.move(mv);
         const fenAfter = chess.fen();
-        const infoAfter = await engineRef.current.analyze(fenAfter, 10);
+        const infoAfter = await engineRef.current.analyze(fenAfter, { depth: 10 });
         const evalAfterRaw =
           infoAfter.mate !== undefined
             ? infoAfter.mate > 0

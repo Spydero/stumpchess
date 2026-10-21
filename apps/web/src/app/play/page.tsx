@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { TIME_CONTROLS, type TimeControlId } from "@chess/shared";
+import { BOT_PRESETS, TIME_CONTROLS, type TimeControlId } from "@chess/shared";
 import { useSession } from "@/lib/auth-client";
 import { getSocket } from "@/lib/socket";
 import { apiFetch } from "@/lib/api";
@@ -13,11 +13,13 @@ export default function PlayPage() {
   const router = useRouter();
   const [waiting, setWaiting] = useState(false);
   const [tc, setTc] = useState<TimeControlId>("5+0");
-  const [botLevel, setBotLevel] = useState(5);
+  const [botSkill, setBotSkill] = useState<number>(BOT_PRESETS[3].skill);
   const [botColor, setBotColor] = useState<"w" | "b">("w");
   const [challengeUser, setChallengeUser] = useState("");
   const [error, setError] = useState("");
   const [inviteUrl, setInviteUrl] = useState("");
+
+  const bot = BOT_PRESETS.find((b) => b.skill === botSkill) || BOT_PRESETS[3];
 
   useEffect(() => {
     if (!user) return;
@@ -63,7 +65,7 @@ export default function PlayPage() {
       const game = await apiFetch("/api/games/bot", {
         method: "POST",
         userId: user.id,
-        body: JSON.stringify({ level: botLevel, color: botColor }),
+        body: JSON.stringify({ level: botSkill, color: botColor }),
       });
       router.push(`/game/${game.id}?bot=1`);
     } catch (e) {
@@ -123,16 +125,23 @@ export default function PlayPage() {
       </section>
 
       <section id="bot" className="panel p-5">
-        <h2 className="text-2xl sm:text-3xl mb-4">vs Computer</h2>
-        <label className="block ui text-sm muted mb-1">Level {botLevel}</label>
-        <input
-          type="range"
-          min={1}
-          max={15}
-          value={botLevel}
-          onChange={(e) => setBotLevel(Number(e.target.value))}
-          className="w-full mb-4"
-        />
+        <h2 className="text-2xl sm:text-3xl mb-2">vs Computer</h2>
+        <p className="ui text-sm mb-4">
+          <span className="font-semibold">{bot.elo} Elo</span>
+          <span className="muted"> · {bot.label}</span>
+        </p>
+        <label className="block ui text-sm muted mb-2">Strength</label>
+        <select
+          className="input mb-4"
+          value={botSkill}
+          onChange={(e) => setBotSkill(Number(e.target.value))}
+        >
+          {BOT_PRESETS.map((b) => (
+            <option key={b.skill} value={b.skill}>
+              {b.elo} Elo · {b.label}
+            </option>
+          ))}
+        </select>
         <div className="flex gap-2 mb-4">
           <button
             type="button"
