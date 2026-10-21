@@ -17,6 +17,7 @@ import {
 } from "@chess/shared";
 import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
+import { chooseEngineMove } from "@/lib/bot-personality";
 import { createStockfish, uciToMove } from "@/lib/stockfish";
 
 type Props = {
@@ -112,6 +113,7 @@ export function GameBoard(props: Props) {
     botBusy.current = true;
     setThinking(true);
     const started = Date.now();
+    const fenBefore = chess.fen();
     const { movetime, minDelay } = engineMode
       ? engineThinkMs({ initialMs: props.initialMs, elo: decoded.elo })
       : personalityThinkMs({ skill, initialMs: props.initialMs });
@@ -120,20 +122,26 @@ export function GameBoard(props: Props) {
       if (!engineRef.current) {
         engineRef.current = createStockfish();
       }
+      let picked: string | undefined;
       if (engineMode) {
-        await engineRef.current.configureEngine(decoded.elo);
+        await engineRef.current.configureEngine(decoded.elo, { multipv: 4 });
+        const info = await engineRef.current.analyze(fenBefore, { movetime });
+        picked =
+          chooseEngineMove(info.pvs.length ? info.pvs : [{ rank: 1, uci: info.bestMove || "" }]) ||
+          info.bestMove;
       } else {
         await engineRef.current.configure(skill, botElo, { multipv: 1 });
+        picked = await engineRef.current.bestMove(fenBefore, { movetime });
       }
-      const best = await engineRef.current.bestMove(chess.fen(), { movetime });
       const elapsed = Date.now() - started;
       if (elapsed < minDelay) {
         await new Promise((r) => setTimeout(r, minDelay - elapsed));
       }
-      const m = best ? uciToMove(best) : null;
+      if (status !== "ACTIVE" || chessRef.current.fen() !== fenBefore) return;
+      const m = picked ? uciToMove(picked) : null;
       if (m) {
         // apply as remote so we don't recurse into another bot call from applyMove's human path
-        const move = chess.move({ from: m.from, to: m.to, promotion: m.promotion || "q" });
+        const move = chessRef.current.move({ from: m.from, to: m.to, promotion: m.promotion || "q" });
         if (move) {
           setFen(chess.fen());
           clearSelection();

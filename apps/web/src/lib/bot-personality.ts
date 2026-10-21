@@ -25,6 +25,35 @@ function enemyKingSquare(fen: string): string | null {
 }
 
 /**
+ * Stockfish lane: free-float among MultiPV near-equals.
+ * Keeps strength (tiny cp band) but avoids always locking the same PV1.
+ */
+export function chooseEngineMove(pvs: PvLine[], maxGapCp = 12): string | undefined {
+  const candidates = pvs.filter((p) => p.uci).slice(0, 4);
+  if (!candidates.length) return undefined;
+  const best = candidates[0];
+  const bestScore = stmScore(best.scoreCp, best.mate);
+  const near = candidates.filter((line) => {
+    const gap = Math.abs(bestScore - stmScore(line.scoreCp, line.mate));
+    return gap <= maxGapCp;
+  });
+  if (near.length <= 1) return best.uci;
+
+  // Soft preference for PV1; still float when lines are engine-equal.
+  const weights = near.map((line, idx) => {
+    const gap = Math.abs(bestScore - stmScore(line.scoreCp, line.mate));
+    return Math.max(0.15, 1.35 - idx * 0.35 - gap / maxGapCp);
+  });
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = Math.random() * total;
+  for (let i = 0; i < near.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return near[i].uci;
+  }
+  return best.uci;
+}
+
+/**
  * Personality = light random among near-best lines only.
  * Strength stays with UCI_Elo; we never give away more than a small cp gap.
  */

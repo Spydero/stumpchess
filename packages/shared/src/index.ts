@@ -99,7 +99,7 @@ export const STOCKFISH_BOT = {
   id: "stockfish",
   kind: "engine" as const,
   name: "Stockfish",
-  tagline: "Best move only. Set Elo or Max.",
+  tagline: "Deep MultiPV. Floats among near-best moves.",
   skill: 20,
   elo: ENGINE_ELO_FULL,
 } as const;

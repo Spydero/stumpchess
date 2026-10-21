@@ -25,13 +25,14 @@ import { EvalBar } from "@/components/EvalBar";
 import { MoveBadge } from "@/components/MoveBadge";
 import { PracticeChessBoard, type PracticeBoardMarker } from "@/components/PracticeChessBoard";
 import { CLASS_META, classifyMove, type ClassLabel } from "@/lib/classify";
-import { chooseStyledMove } from "@/lib/bot-personality";
+import { chooseEngineMove, chooseStyledMove } from "@/lib/bot-personality";
 import { formatClock, needsPromotion, playMoveSound } from "@/lib/practice-utils";
 import {
   bestGapCp,
   createStockfish,
   depthReliable,
   formatEval,
+  stmScore,
   toWhiteEval,
   uciToMove,
   type EngineInfo,
@@ -132,8 +133,11 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
   const playEngine = useRef<ReturnType<typeof createStockfish> | null>(null);
   const coachEngine = useRef<ReturnType<typeof createStockfish> | null>(null);
   const botBusy = useRef(false);
+  const botGen = useRef(0);
   const coachGen = useRef(0);
   const judgeGen = useRef(0);
+  const coachRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runCoachRef = useRef<(() => Promise<void>) | null>(null);
   const coachInfoRef = useRef<EngineInfo | null>(null);
   const liveRef = useRef(liveAnalysis);
   const depthRef = useRef(15);
@@ -242,7 +246,7 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
       coachEngine.current = createStockfish({ forceSingle: true });
     }
     await coachEngine.current.configureCoach({
-      multipv: 2,
+      multipv: 4,
       hash: d >= 15 ? 48 : 32,
     });
     return coachEngine.current;
@@ -374,6 +378,15 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
         if (gen === judgeGen.current) {
           setJudging(false);
           busyRef.current = false;
+          // Coach may have been skipped while judging — refresh current fen
+          const fenNow = chessRef.current.fen();
+          if (liveRef.current && skipCoachFenRef.current !== fenNow) {
+            if (coachRetryTimer.current) clearTimeout(coachRetryTimer.current);
+            coachRetryTimer.current = setTimeout(() => {
+              coachRetryTimer.current = null;
+              void runCoachRef.current?.();
+            }, 60);
+          }
         }
       }
     },
@@ -386,7 +399,15 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
       coachInfoRef.current = null;
       return;
     }
-    if (busyRef.current) return;
+    if (busyRef.current) {
+      // Retry after judge finishes instead of leaving stale arrows
+      if (coachRetryTimer.current) clearTimeout(coachRetryTimer.current);
+      coachRetryTimer.current = setTimeout(() => {
+        coachRetryTimer.current = null;
+        if (!busyRef.current) void runCoachRef.current?.();
+      }, 120);
+      return;
+    }
 
     const fenNow = chessRef.current.fen();
     if (skipCoachFenRef.current === fenNow) {
@@ -401,7 +422,29 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
     const gen = ++coachGen.current;
     try {
       const engine = await ensureCoach();
-      const info = await engine.analyze(fenNow, { depth: depthRef.current });
+      let lastArrowSig = "";
+      let lastUiDepth = -1;
+      // Only push UI when candidate moves change, or every ~3 depths (cuts arrow flicker)
+      const info = await engine.analyze(fenNow, {
+        depth: depthRef.current,
+        onUpdate: (partial) => {
+          if (gen !== coachGen.current) return;
+          if (!partial.bestMove && !partial.pvs?.length) return;
+          const arrowSig = (partial.pvs || [])
+            .slice(0, 4)
+            .map((p) => p.uci)
+            .join(",");
+          const d = partial.depth || 0;
+          const target = depthRef.current;
+          const arrowsChanged = arrowSig !== lastArrowSig;
+          const depthMilestone = d === target || (d > 0 && d % 3 === 0 && d !== lastUiDepth);
+          if (!arrowsChanged && !depthMilestone) return;
+          lastArrowSig = arrowSig;
+          lastUiDepth = d;
+          coachInfoRef.current = partial;
+          startTransition(() => setCoachInfo(partial));
+        },
+      });
       if (gen === coachGen.current) {
         coachInfoRef.current = info;
         startTransition(() => setCoachInfo(info));
@@ -410,6 +453,10 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
       /* ignore */
     }
   }, [ensureCoach]);
+
+  useEffect(() => {
+    runCoachRef.current = runCoach;
+  }, [runCoach]);
 
   const applyHumanMove = useCallback(
     (from: string, to: string, promotion?: string): boolean => {
@@ -515,6 +562,7 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
     if (gameStatusRef.current !== "ACTIVE" || chess.isGameOver()) return;
     if (chess.turn() === playerColor) return;
 
+    const myGen = ++botGen.current;
     botBusy.current = true;
     setThinking(true);
     const started = Date.now();
@@ -531,14 +579,21 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
       let picked: string | undefined;
 
       if (engineMode) {
-        // Stockfish lane: best move only, Elo settable (0 / >2850 = Max)
-        await playEngine.current.configureEngine(engElo);
-        picked = await playEngine.current.bestMove(fenBefore, { movetime });
+        // Stockfish: deeper MultiPV, free-float among near-equal best moves
+        await playEngine.current.configureEngine(engElo, { multipv: 4 });
+        if (myGen !== botGen.current) return;
+        const info = await playEngine.current.analyze(fenBefore, { movetime });
+        if (myGen !== botGen.current) return;
+        picked =
+          chooseEngineMove(info.pvs.length ? info.pvs : [{ rank: 1, uci: info.bestMove || "" }]) ||
+          info.bestMove;
       } else {
         const style = "style" in bot ? bot.style : "balanced";
         const useStyle = style !== "balanced";
         await playEngine.current.configure(bot.skill, bot.elo, { multipv: useStyle ? 2 : 1 });
+        if (myGen !== botGen.current) return;
         const info = await playEngine.current.analyze(fenBefore, { movetime });
+        if (myGen !== botGen.current) return;
         picked = useStyle
           ? chooseStyledMove(
               fenBefore,
@@ -551,12 +606,19 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
       const elapsed = Date.now() - started;
       if (elapsed < minDelay) await new Promise((r) => setTimeout(r, minDelay - elapsed));
 
+      // Cancelled, finished, or board changed (new game / takeback)
+      if (myGen !== botGen.current) return;
       if (gameStatusRef.current !== "ACTIVE") return;
+      if (chessRef.current.fen() !== fenBefore) return;
 
       const m = picked ? uciToMove(picked) : null;
       if (m) {
-        const botColor = chess.turn();
-        const move = chess.move({ from: m.from, to: m.to, promotion: m.promotion || "q" });
+        const botColor = chessRef.current.turn();
+        const move = chessRef.current.move({
+          from: m.from,
+          to: m.to,
+          promotion: m.promotion || "q",
+        });
         if (move) {
           const curTc = tcRef.current;
           if (curTc.initialMs > 0 && curTc.incrementMs > 0) {
@@ -575,21 +637,28 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
           setAnnotated((list) => [...list, { san: move.san, from: move.from, to: move.to }]);
           clearSelection();
           syncFen();
-          // Fire premove after board updates
-          setTimeout(() => tryPremove(), 30);
+          setTimeout(() => {
+            if (myGen === botGen.current) tryPremove();
+          }, 30);
         }
       }
     } catch (e) {
       console.error(e);
     } finally {
-      setThinking(false);
-      botBusy.current = false;
+      if (myGen === botGen.current) {
+        setThinking(false);
+        botBusy.current = false;
+      }
     }
   }, [vsBot, playerColor, bot, engineMode, clearSelection, syncFen, tryPremove]);
 
   useEffect(() => {
     syncFen();
     return () => {
+      botGen.current++;
+      coachGen.current++;
+      judgeGen.current++;
+      if (coachRetryTimer.current) clearTimeout(coachRetryTimer.current);
       playEngine.current?.dispose();
       coachEngine.current?.dispose();
       playEngine.current = null;
@@ -619,6 +688,11 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
 
   useEffect(() => {
     if (!coachOn) return;
+    // Drop previous arrows immediately so they don't sit on the new position
+    coachGen.current++;
+    coachEngine.current?.stop();
+    setCoachInfo(null);
+    coachInfoRef.current = null;
     const t = setTimeout(() => void runCoach(), 100);
     return () => clearTimeout(t);
   }, [fen, coachOn, coachStrength, runCoach]);
@@ -637,22 +711,33 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
   useEffect(() => {
     if (!timed || gameStatus !== "ACTIVE" || !clockStarted) return;
     flaggedRef.current = false;
+    let lastW = -1;
+    let lastB = -1;
     const id = setInterval(() => {
       if (gameStatusRef.current !== "ACTIVE" || flaggedRef.current) return;
       const turn = chessRef.current.turn();
       if (turn === "w") whiteTime.current = Math.max(0, whiteTime.current - 100);
       else blackTime.current = Math.max(0, blackTime.current - 100);
-      setClocks({ w: whiteTime.current, b: blackTime.current });
+      // Only re-render when the displayed second changes (~1Hz, not 10Hz)
+      const wSec = Math.ceil(whiteTime.current / 1000);
+      const bSec = Math.ceil(blackTime.current / 1000);
+      if (wSec !== lastW || bSec !== lastB) {
+        lastW = wSec;
+        lastB = bSec;
+        setClocks({ w: whiteTime.current, b: blackTime.current });
+      }
       if (whiteTime.current <= 0) {
         flaggedRef.current = true;
+        setClocks({ w: 0, b: blackTime.current });
         finishGame("0-1", "White flagged. Black wins");
       } else if (blackTime.current <= 0) {
         flaggedRef.current = true;
+        setClocks({ w: whiteTime.current, b: 0 });
         finishGame("1-0", "Black flagged. White wins");
       }
     }, 100);
     return () => clearInterval(id);
-  }, [timed, gameStatus, clockStarted, fen, finishGame]);
+  }, [timed, gameStatus, clockStarted, finishGame]);
 
   function resetClocks(nextTc = tc) {
     whiteTime.current = nextTc.initialMs || 0;
@@ -664,10 +749,15 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
   function resetBoard(nextColor: "w" | "b" = playerColor, nextTcId = tcId) {
     coachGen.current++;
     judgeGen.current++;
+    botGen.current++;
     botBusy.current = false;
     busyRef.current = false;
     setThinking(false);
     setJudging(false);
+    if (coachRetryTimer.current) {
+      clearTimeout(coachRetryTimer.current);
+      coachRetryTimer.current = null;
+    }
     playEngine.current?.stop();
     coachEngine.current?.stop();
     chessRef.current = new Chess();
@@ -694,6 +784,10 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
     if (!annotated.length || gameStatus !== "ACTIVE") return;
     judgeGen.current++;
     coachGen.current++;
+    botGen.current++;
+    botBusy.current = false;
+    setThinking(false);
+    playEngine.current?.stop();
     coachEngine.current?.stop();
     busyRef.current = false;
     setJudging(false);
@@ -701,6 +795,8 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
     setPendingPromo(null);
     setPremove(null);
     premoveRef.current = null;
+    setCoachInfo(null);
+    coachInfoRef.current = null;
     if (vsBot) {
       chessRef.current.undo();
       if (chessRef.current.turn() !== playerColor) chessRef.current.undo();
@@ -846,12 +942,41 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
     ]
   );
 
-  const bestArrow = useMemo((): Arrow | null => {
-    if (!coachOn || !coachInfo?.bestMove) return null;
-    const m = uciToMove(coachInfo.bestMove);
-    if (!m) return null;
-    return [m.from as Square, m.to as Square, "rgb(111, 168, 135)"];
-  }, [coachOn, coachInfo?.bestMove]);
+  /** Up to 4 arrows for near-best MultiPV lines (colors by rank). */
+  const coachArrows = useMemo((): Arrow[] => {
+    if (!coachOn || !coachInfo) return [];
+    const lines = (coachInfo.pvs?.length
+      ? coachInfo.pvs
+      : coachInfo.bestMove
+        ? [{ rank: 1, uci: coachInfo.bestMove, scoreCp: coachInfo.scoreCp, mate: coachInfo.mate }]
+        : []
+    ).filter((p) => p.uci);
+    if (!lines.length) return [];
+
+    const bestScore = stmScore(lines[0].scoreCp, lines[0].mate);
+    const MAX_GAP = 25;
+    const colors = [
+      "rgb(111, 168, 135)",
+      "rgb(120, 168, 196)",
+      "rgb(196, 168, 104)",
+      "rgb(168, 140, 188)",
+    ];
+
+    const out: Arrow[] = [];
+    const seen = new Set<string>();
+    for (let i = 0; i < Math.min(4, lines.length); i++) {
+      const line = lines[i];
+      const gap = Math.abs(bestScore - stmScore(line.scoreCp, line.mate));
+      if (i > 0 && gap > MAX_GAP) continue;
+      const m = uciToMove(line.uci);
+      if (!m) continue;
+      const key = `${m.from}${m.to}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push([m.from as Square, m.to as Square, colors[i] || colors[colors.length - 1]]);
+    }
+    return out;
+  }, [coachOn, coachInfo]);
 
   const boardMarker = useMemo((): PracticeBoardMarker => {
     if (!coachOn || !lastFeedback) return null;
@@ -872,18 +997,27 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
     ? toWhiteEval(chessRef.current.turn(), coachInfo.scoreCp, coachInfo.mate)
     : 0;
 
-  const bestSan = useMemo(() => {
-    if (!coachInfo?.bestMove) return null;
-    try {
-      const c = new Chess(fen);
-      const m = uciToMove(coachInfo.bestMove);
-      if (!m) return coachInfo.bestMove;
-      const mv = c.move({ from: m.from, to: m.to, promotion: m.promotion || "q" });
-      return mv?.san || coachInfo.bestMove;
-    } catch {
-      return coachInfo.bestMove;
+  const bestSans = useMemo(() => {
+    if (!coachArrows.length || !coachInfo) return [] as string[];
+    const lines = coachInfo.pvs?.length
+      ? coachInfo.pvs
+      : coachInfo.bestMove
+        ? [{ uci: coachInfo.bestMove }]
+        : [];
+    const sans: string[] = [];
+    for (const line of lines.slice(0, coachArrows.length)) {
+      try {
+        const c = new Chess(fen);
+        const m = uciToMove(line.uci);
+        if (!m) continue;
+        const mv = c.move({ from: m.from, to: m.to, promotion: m.promotion || "q" });
+        if (mv?.san) sans.push(mv.san);
+      } catch {
+        /* skip */
+      }
     }
-  }, [coachInfo, fen]);
+    return sans;
+  }, [coachArrows.length, coachInfo, fen]);
 
   const topClock = orientation === "white" ? clocks.b : clocks.w;
   const bottomClock = orientation === "white" ? clocks.w : clocks.b;
@@ -962,7 +1096,7 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
               draggable={piecesDraggable}
               optionSquares={optionSquares}
               marker={boardMarker}
-              bestArrow={bestArrow}
+              arrows={coachArrows}
               premove={premove}
               overlay={promoOverlay}
               onPieceDrop={onPieceDrop}
@@ -996,10 +1130,11 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
             {premove && gameStatus === "ACTIVE" && (
               <span className="text-[var(--ink)]"> · Premove set</span>
             )}
-            {coachOn && bestSan && !thinking && gameStatus === "ACTIVE" && (
+            {coachOn && bestSans.length > 0 && !thinking && gameStatus === "ACTIVE" && (
               <span className="text-[var(--ink)]">
                 {" "}
-                · Best: <strong className="text-[var(--accent)]">{bestSan}</strong>
+                · {bestSans.length > 1 ? "Candidates" : "Best"}:{" "}
+                <strong className="text-[var(--accent)]">{bestSans.join(", ")}</strong>
                 {coachInfo?.depth ? ` (d${coachInfo.depth})` : ""}
                 {coachInfo ? ` · ${formatEval(whiteCp)}` : ""}
               </span>

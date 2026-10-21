@@ -91,6 +91,9 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
   let onInfo: ((info: EngineInfo) => void) | null = null;
   let searching = false;
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Bumps on each new analyze/stop/dispose so late bestmove can't finish the wrong search. */
+  let searchEpoch = 0;
+  let activeEpoch = 0;
   let configured = false;
   let engineName = "stockfish-19-lite";
   let hashMb = 32;
@@ -156,7 +159,8 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
     };
   };
 
-  const finishSearch = (info: EngineInfo) => {
+  const finishSearch = (info: EngineInfo, epoch: number) => {
+    if (epoch !== activeEpoch) return;
     if (searchTimer) {
       clearTimeout(searchTimer);
       searchTimer = null;
@@ -199,7 +203,7 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
           pv,
         };
         // Only materialize EngineInfo when a listener cares (avoids main-thread churn)
-        if (onInfo) {
+        if (onInfo && activeEpoch === searchEpoch) {
           const info = buildInfo();
           latest = { ...info, depth: d ?? info.depth };
           onInfo(info);
@@ -211,6 +215,7 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
 
       if (text.startsWith("bestmove ")) {
         if (!resolver && !searching) continue;
+        const epoch = activeEpoch;
         const built = buildInfo();
         const best = text.split(/\s+/)[1];
         const info = {
@@ -218,14 +223,14 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
           bestMove: !best || best === "(none)" ? built.bestMove : best,
         };
         latest = info;
-        finishSearch(info);
+        finishSearch(info, epoch);
       }
     }
   };
 
   worker.onerror = (err) => {
     console.error("Stockfish worker error", err);
-    finishSearch(buildInfo());
+    finishSearch(buildInfo(), activeEpoch);
   };
 
   worker.postMessage("uci");
@@ -285,10 +290,10 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
       await pingReady();
     },
     /**
-     * Stockfish lane: best-move engine with settable Elo.
+     * Stockfish lane: settable Elo, MultiPV for free-floating among near-best.
      * elo <= 0 or > 2850 → unlimited strength.
      */
-    async configureEngine(elo: number, opts?: { hash?: number }) {
+    async configureEngine(elo: number, opts?: { hash?: number; multipv?: number }) {
       await ensureConfigured();
       worker.postMessage("setoption name Skill Level value 20");
       if (!Number.isFinite(elo) || elo <= 0 || elo > 2850) {
@@ -299,7 +304,7 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
           `setoption name UCI_Elo value ${Math.max(800, Math.min(2850, Math.round(elo)))}`
         );
       }
-      await applyHashAndMultipv(opts?.hash ?? 64, 1);
+      await applyHashAndMultipv(opts?.hash ?? 64, opts?.multipv ?? 3);
       await pingReady();
     },
     /** Full-strength analysis engine (for live hints / practice). */
@@ -323,15 +328,28 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
     ): Promise<EngineInfo> {
       await ensureConfigured();
 
+      const epoch = ++searchEpoch;
       if (searching) {
         worker.postMessage("stop");
-        await new Promise((r) => setTimeout(r, 20));
+        // Resolve the previous waiter so callers don't hang
+        if (resolver) {
+          const prev = resolver;
+          resolver = null;
+          onInfo = null;
+          searching = false;
+          prev(buildInfo());
+        }
+        await new Promise((r) => setTimeout(r, 30));
+      }
+      if (epoch !== searchEpoch) {
+        return { pvs: [] };
       }
 
       latest = { pvs: [] };
       lines = {};
       onInfo = opts.onUpdate || null;
       searching = true;
+      activeEpoch = epoch;
 
       const depth = opts.depth ?? 18;
       const movetime = opts.movetime;
@@ -341,11 +359,15 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
         : Math.min(20000, 2000 + depth * 350);
 
       return new Promise((resolve) => {
+        if (epoch !== searchEpoch) {
+          resolve({ pvs: [] });
+          return;
+        }
         resolver = resolve;
         searchTimer = setTimeout(() => {
           worker.postMessage("stop");
           setTimeout(() => {
-            if (resolver) finishSearch(buildInfo());
+            if (resolver && activeEpoch === epoch) finishSearch(buildInfo(), epoch);
           }, 100);
         }, safetyMs);
 
@@ -362,10 +384,31 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
       return info.bestMove;
     },
     stop() {
+      searchEpoch++;
       worker.postMessage("stop");
+      if (resolver) {
+        const r = resolver;
+        resolver = null;
+        onInfo = null;
+        searching = false;
+        if (searchTimer) {
+          clearTimeout(searchTimer);
+          searchTimer = null;
+        }
+        r(buildInfo());
+      }
     },
     dispose() {
+      searchEpoch++;
       if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = null;
+      if (resolver) {
+        const r = resolver;
+        resolver = null;
+        onInfo = null;
+        searching = false;
+        r({ pvs: [] });
+      }
       worker.terminate();
     },
   };

@@ -2,6 +2,8 @@
 
 Lightweight chess platform: random matchmaking, classic forum, roles (VIP / STA / LTA / Manager / Owner), and **VIP-only** full analysis powered by Stockfish in the browser.
 
+**AI / new chat:** start by reading [`AGENTS.md`](AGENTS.md) (full file map, bot lanes, Practice invariants, pitfalls).
+
 ## Stack
 
 - Next.js (Better Auth)

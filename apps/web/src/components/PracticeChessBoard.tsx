@@ -29,7 +29,7 @@ type Props = {
   draggable: boolean;
   optionSquares: Record<string, CSSProperties>;
   marker: PracticeBoardMarker;
-  bestArrow: Arrow | null;
+  arrows?: Arrow[];
   premove?: Premove;
   overlay?: ReactNode;
   onPieceDrop: (from: string, to: string) => boolean;
@@ -46,7 +46,7 @@ export const PracticeChessBoard = memo(function PracticeChessBoard({
   draggable,
   optionSquares,
   marker,
-  bestArrow,
+  arrows = [],
   premove = null,
   overlay = null,
   onPieceDrop,
@@ -76,8 +76,6 @@ export const PracticeChessBoard = memo(function PracticeChessBoard({
     }
     return styles;
   }, [optionSquares, marker, premove]);
-
-  const arrows = useMemo((): Arrow[] => (bestArrow ? [bestArrow] : []), [bestArrow]);
 
   return (
     <div className="relative">
