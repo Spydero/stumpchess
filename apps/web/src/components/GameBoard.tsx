@@ -218,18 +218,26 @@ export function GameBoard(props: Props) {
 
     if (props.isBot) {
       setTransport("local");
-      engineRef.current = createStockfish();
-      engineRef.current.setSkill(props.botLevel ?? 5);
-      // If user is black, computer opens
-      if (myColor === "b" && chessRef.current.turn() === "w" && status === "ACTIVE") {
-        setTimeout(async () => {
-          const best = await engineRef.current?.bestMove(
-            chessRef.current.fen(),
-            Math.min(12, 4 + Math.floor((props.botLevel ?? 5) / 2))
-          );
-          const m = best ? uciToMove(best) : null;
-          if (m) applyMove(m.from, m.to, m.promotion, true);
-        }, 400);
+      try {
+        engineRef.current = createStockfish();
+        engineRef.current.setSkill(props.botLevel ?? 5);
+        // If user is black, computer opens
+        if (myColor === "b" && chessRef.current.turn() === "w" && status === "ACTIVE") {
+          setTimeout(async () => {
+            try {
+              const best = await engineRef.current?.bestMove(
+                chessRef.current.fen(),
+                Math.min(12, 4 + Math.floor((props.botLevel ?? 5) / 2))
+              );
+              const m = best ? uciToMove(best) : null;
+              if (m) applyMove(m.from, m.to, m.promotion, true);
+            } catch (e) {
+              console.error(e);
+            }
+          }, 400);
+        }
+      } catch (e) {
+        console.error("Failed to start engine", e);
       }
     }
 

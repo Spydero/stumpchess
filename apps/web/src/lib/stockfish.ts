@@ -9,18 +9,33 @@ export type EngineInfo = {
 };
 
 /**
- * Loads Stockfish from CDN as a Web Worker (runs on the user's device).
+ * Stockfish Web Worker from same origin (public/engines/stockfish.js).
+ * Cross-origin Worker URLs are blocked by browsers.
  */
 export function createStockfish() {
-  const worker = new Worker(
-    "https://cdn.jsdelivr.net/npm/stockfish.wasm@0.10.0/stockfish.js"
-  );
+  const worker = new Worker("/engines/stockfish.js");
 
   let resolver: ((info: EngineInfo) => void) | null = null;
   let latest: EngineInfo = {};
+  let ready = false;
+  const readyWaiters: Array<() => void> = [];
+
+  const onReady = () => {
+    ready = true;
+    while (readyWaiters.length) readyWaiters.shift()?.();
+  };
+
+  const waitReady = () =>
+    new Promise<void>((resolve) => {
+      if (ready) resolve();
+      else readyWaiters.push(resolve);
+    });
 
   worker.onmessage = (e: MessageEvent<string>) => {
     const line = typeof e.data === "string" ? e.data : String(e.data);
+    if (line === "uciok" || line === "readyok") {
+      onReady();
+    }
     if (line.startsWith("info ")) {
       const depth = / depth (\d+)/.exec(line)?.[1];
       const mate = / score mate (-?\d+)/.exec(line)?.[1];
@@ -42,6 +57,12 @@ export function createStockfish() {
     }
   };
 
+  worker.onerror = (err) => {
+    console.error("Stockfish worker error", err);
+    resolver?.({});
+    resolver = null;
+  };
+
   worker.postMessage("uci");
   worker.postMessage("isready");
 
@@ -50,6 +71,7 @@ export function createStockfish() {
       worker.postMessage(`setoption name Skill Level value ${Math.max(0, Math.min(20, level))}`);
     },
     async analyze(fen: string, depth = 12): Promise<EngineInfo> {
+      await waitReady();
       latest = {};
       return new Promise((resolve) => {
         resolver = resolve;
