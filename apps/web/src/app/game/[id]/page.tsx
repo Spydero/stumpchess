@@ -13,6 +13,7 @@ import {
 import { useSession } from "@/lib/auth-client";
 import { apiFetch } from "@/lib/api";
 import { GameBoard } from "@/components/GameBoard";
+import { useVipFeatures } from "@/lib/vip-features";
 
 type Game = {
   id: string;
@@ -38,6 +39,7 @@ export default function GamePage() {
     role?: string;
     vipExpiresAt?: string | null;
   } | undefined;
+  const vip = useVipFeatures(user);
   const [game, setGame] = useState<Game | null>(null);
   const [error, setError] = useState("");
   const [accepting, setAccepting] = useState(false);
@@ -153,8 +155,7 @@ export default function GamePage() {
       <GameBoard
         gameId={game.id}
         userId={user.id}
-        userRole={user.role}
-        vipExpiresAt={user.vipExpiresAt}
+        canAnalyze={vip.allowed}
         initialFen={game.fen}
         whiteId={game.whiteId}
         blackId={game.blackId}

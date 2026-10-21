@@ -10,10 +10,8 @@ import {
   decodeBotLevel,
   engineThinkMs,
   formatEngineElo,
-  hasVipAccess,
   isEngineFullStrength,
   personalityThinkMs,
-  type Role,
 } from "@chess/shared";
 // isEngineFullStrength used for capped vs Max Stockfish pick
 import { apiFetch } from "@/lib/api";
@@ -24,8 +22,8 @@ import { createStockfish, uciToMove } from "@/lib/stockfish";
 type Props = {
   gameId: string;
   userId: string;
-  userRole?: string;
-  vipExpiresAt?: string | Date | null;
+  /** When true, show Analyze after the game (VIP or site open-to-all). */
+  canAnalyze?: boolean;
   initialFen: string;
   whiteId: string | null;
   blackId: string | null;
@@ -69,7 +67,7 @@ export function GameBoard(props: Props) {
 
   const orientation = myColor === "b" ? "black" : "white";
 
-  const canAnalyze = hasVipAccess((props.userRole as Role) || "MEMBER", props.vipExpiresAt);
+  const canAnalyze = Boolean(props.canAnalyze);
 
   const clearSelection = useCallback(() => {
     setSelected(null);

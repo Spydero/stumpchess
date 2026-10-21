@@ -56,7 +56,7 @@ Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` / `apps/web/.env.loc
 |------|--------|
 | Member | Play, forum, search, bots, openings explorer (book + live SF) |
 | Tournament Host | Create/run Swiss tournaments |
-| VIP 30 / VIP Permanent | Full game analysis, Practice, mistake drills, host tournaments |
+| VIP 30 / VIP Permanent | Full game analysis, Practice, mistake drills, host tournaments (also open to all members when LTA+ leaves site features open; default) |
 | STA (red, 28d) | Limited forum mod |
 | LTA (blue) | Assign VIP/STA |
 | Manager | High staff |

@@ -14,7 +14,7 @@ async function main() {
   await prisma.siteSetting.upsert({
     where: { id: "site" },
     update: {},
-    create: { id: "site", registrationOpen: true },
+    create: { id: "site", registrationOpen: true, vipFeaturesOpen: true },
   });
 
   const categories = [

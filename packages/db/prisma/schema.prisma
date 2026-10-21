@@ -239,6 +239,12 @@ model SiteSetting {
   id                String  @id @default("site")
   registrationOpen  Boolean @default(true)
   inviteCode        String?
+  /**
+   * When true (default), analysis / Practice / mistake drills are free for all members.
+   * When false, those features require VIP (or LTA+ hierarchy via hasVipAccess).
+   * Toggleable by LTA+.
+   */
+  vipFeaturesOpen   Boolean @default(true)
 }
 
 /** 1:1 DM thread between two users (pairKey = sorted userId:userId). */

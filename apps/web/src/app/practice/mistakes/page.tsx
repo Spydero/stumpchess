@@ -11,7 +11,7 @@ import {
 import { MistakeDrill } from "@/components/MistakeDrill";
 import { useSession } from "@/lib/auth-client";
 import { apiFetch } from "@/lib/api";
-import { userHasVip } from "@/lib/roles";
+import { useVipFeatures } from "@/lib/vip-features";
 import {
   filterMistakeMoves,
   hashPgn,
@@ -86,7 +86,7 @@ function MistakesInner() {
   const gameIdParam = search.get("gameId");
   const { data, isPending } = useSession();
   const user = data?.user as { id: string; role?: string; vipExpiresAt?: string | null } | undefined;
-  const [allowed, setAllowed] = useState<boolean | null>(null);
+  const vip = useVipFeatures(user);
   const [games, setGames] = useState<GameRow[]>([]);
   const [localEntries, setLocalEntries] = useState<LocalAnalysisEntry[]>([]);
   const [source, setSource] = useState<Source | null>(
@@ -99,15 +99,7 @@ function MistakesInner() {
   const [pendingAnalyzeId, setPendingAnalyzeId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) {
-      setAllowed(false);
-      return;
-    }
-    setAllowed(userHasVip(user.role || "MEMBER", user.vipExpiresAt));
-  }, [user]);
-
-  useEffect(() => {
-    if (!user || !allowed) return;
+    if (!user || !vip.allowed) return;
 
     const stashed = takeStashedMistakesPgn();
     if (stashed) {
@@ -141,7 +133,7 @@ function MistakesInner() {
         }
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load games"));
-  }, [user, allowed, gameIdParam]);
+  }, [user, vip.allowed, gameIdParam]);
 
   useEffect(() => {
     if (!source) {
@@ -262,7 +254,7 @@ function MistakesInner() {
     setLocalEntries(listLocalAnalyses().filter((e) => !gameHashes.has(e.hash)));
   }
 
-  if (isPending || allowed === null) {
+  if (isPending || vip.loading) {
     return <p className="pulse-soft ui muted">Loading…</p>;
   }
 
@@ -277,12 +269,14 @@ function MistakesInner() {
     );
   }
 
-  if (!allowed) {
+  if (!vip.allowed) {
     return (
       <div className="panel p-6 max-w-lg">
         <p className="forum-kicker">VIP</p>
         <h1 className="text-3xl mt-1 mb-3">Practice mistakes</h1>
-        <p className="muted ui text-sm mb-4">Mistake drills need VIP.</p>
+        <p className="muted ui text-sm mb-4">
+          Mistake drills are VIP-only right now. Ask an LTA+ to open features for everyone.
+        </p>
         <Link href="/practice" className="btn btn-ghost">
           Back to Practice
         </Link>

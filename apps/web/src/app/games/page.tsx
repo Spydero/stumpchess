@@ -9,7 +9,7 @@ import {
 } from "@chess/shared";
 import { useSession } from "@/lib/auth-client";
 import { apiFetch } from "@/lib/api";
-import { userHasVip } from "@/lib/roles";
+import { useVipFeatures } from "@/lib/vip-features";
 
 type Game = {
   id: string;
@@ -45,7 +45,8 @@ export default function GamesPage() {
   const [tab, setTab] = useState<"mine" | "recent">("mine");
   const [games, setGames] = useState<Game[]>([]);
   const [error, setError] = useState("");
-  const canAnalyze = user ? userHasVip(user.role || "MEMBER", user.vipExpiresAt) : false;
+  const vip = useVipFeatures(user);
+  const canAnalyze = Boolean(user && vip.allowed);
 
   useEffect(() => {
     setError("");

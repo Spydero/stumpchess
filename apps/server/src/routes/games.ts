@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { prisma } from "@chess/db";
 import { Chess } from "chess.js";
-import { TIME_CONTROLS, hasVipAccess, type Role } from "@chess/shared";
+import { TIME_CONTROLS, type Role } from "@chess/shared";
 import { requireUser, type AuthedRequest } from "../middleware";
 import { param } from "../params";
 import { purgeExpiredGames } from "../purge";
 import { applyTournamentGameResult } from "../tournament-score";
+import { canUseVipFeatures } from "../site";
 import { applyRatedGameResult } from "../elo";
 
 export function createGamesRouter() {
@@ -143,8 +144,9 @@ export function createGamesRouter() {
   router.post("/practice", requireUser, async (req: AuthedRequest, res) => {
     const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    if (!hasVipAccess(user.role as Role, user.vipExpiresAt)) {
-      return res.status(403).json({ error: "VIP required" });
+    const access = await canUseVipFeatures(user.role as Role, user.vipExpiresAt);
+    if (!access.allowed) {
+      return res.status(403).json({ error: "VIP required", vipFeaturesOpen: false });
     }
 
     const {
@@ -336,17 +338,28 @@ export function createGamesRouter() {
   router.post("/analyze/check", requireUser, async (req: AuthedRequest, res) => {
     const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const vip = hasVipAccess(user.role as Role, user.vipExpiresAt);
-    if (!vip) return res.status(403).json({ error: "VIP required", vip: false });
-    res.json({ vip: true });
+    const access = await canUseVipFeatures(user.role as Role, user.vipExpiresAt);
+    if (!access.allowed) {
+      return res.status(403).json({
+        error: "VIP required",
+        vip: false,
+        vipFeaturesOpen: false,
+      });
+    }
+    res.json({
+      vip: access.personalVip,
+      vipFeaturesOpen: access.vipFeaturesOpen,
+      allowed: true,
+    });
   });
 
-  /** Save / replace cached game review (VIP, participant only). */
+  /** Save / replace cached game review (VIP or open-to-all, participant only). */
   router.put("/:id/analysis", requireUser, async (req: AuthedRequest, res) => {
     const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    if (!hasVipAccess(user.role as Role, user.vipExpiresAt)) {
-      return res.status(403).json({ error: "VIP required" });
+    const access = await canUseVipFeatures(user.role as Role, user.vipExpiresAt);
+    if (!access.allowed) {
+      return res.status(403).json({ error: "VIP required", vipFeaturesOpen: false });
     }
 
     const game = await prisma.game.findUnique({ where: { id: param(req, "id") } });

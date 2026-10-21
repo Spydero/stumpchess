@@ -6,7 +6,7 @@ import cors from "cors";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { prisma } from "@chess/db";
-import { TIME_CONTROLS, hasVipAccess, type Role, type TimeControlId } from "@chess/shared";
+import { TIME_CONTROLS, type Role, type TimeControlId } from "@chess/shared";
 import { Chess } from "chess.js";
 import { createForumRouter } from "./routes/forum";
 import { createUsersRouter } from "./routes/users";
@@ -17,6 +17,7 @@ import { createTournamentsRouter } from "./routes/tournaments";
 import { applyTournamentGameResult } from "./tournament-score";
 import { applyRatedGameResult } from "./elo";
 import { Matchmaking } from "./matchmaking";
+import { canUseVipFeatures, getSiteSettings } from "./site";
 
 dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 dotenv.config({ path: path.resolve(__dirname, "../../../.env.local") });
@@ -42,13 +43,25 @@ app.use("/api/admin", createAdminRouter());
 app.use("/api/messages", createMessagesRouter());
 app.use("/api/tournaments", createTournamentsRouter());
 
+/** Public site flags (no auth). */
+app.get("/api/site", async (_req, res) => {
+  const site = await getSiteSettings();
+  res.json({
+    registrationOpen: site.registrationOpen,
+    vipFeaturesOpen: site.vipFeaturesOpen,
+  });
+});
+
 app.get("/api/me/vip", async (req, res) => {
   const userId = String(req.headers["x-user-id"] || "");
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return res.status(404).json({ error: "Not found" });
+  const access = await canUseVipFeatures(user.role as Role, user.vipExpiresAt);
   res.json({
-    vip: hasVipAccess(user.role as Role, user.vipExpiresAt),
+    vip: access.personalVip,
+    vipFeaturesOpen: access.vipFeaturesOpen,
+    allowed: access.allowed,
     role: user.role,
   });
 });

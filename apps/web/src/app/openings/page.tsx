@@ -1,15 +1,15 @@
 "use client";
 
 import { useSession } from "@/lib/auth-client";
-import { userHasVip } from "@/lib/roles";
 import { OpeningsExplorer } from "@/components/OpeningsExplorer";
+import { useVipFeatures } from "@/lib/vip-features";
 
 export default function OpeningsPage() {
   const { data, isPending } = useSession();
   const user = data?.user as
-    | { role?: string; vipExpiresAt?: string | null }
+    | { id: string; role?: string; vipExpiresAt?: string | null }
     | undefined;
-  const isVip = user ? userHasVip(user.role || "MEMBER", user.vipExpiresAt) : false;
+  const vip = useVipFeatures(user);
 
   return (
     <div className="rise-in openings-page">
@@ -20,10 +20,10 @@ export default function OpeningsPage() {
         </p>
       </header>
 
-      {isPending ? (
+      {isPending || vip.loading ? (
         <p className="ui muted pulse-soft">Loading…</p>
       ) : (
-        <OpeningsExplorer isVip={isVip} />
+        <OpeningsExplorer isVip={vip.allowed} />
       )}
     </div>
   );

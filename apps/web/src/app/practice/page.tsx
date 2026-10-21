@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense } from "react";
 import { PracticeBoard, type PracticeMode } from "@/components/PracticeBoard";
 import { useSession } from "@/lib/auth-client";
-import { userHasVip } from "@/lib/roles";
+import { useVipFeatures } from "@/lib/vip-features";
 
 function parseMode(raw: string | null): PracticeMode {
   if (raw === "coach" || raw === "bot" || raw === "sandbox") return raw;
@@ -16,25 +16,17 @@ function PracticeInner() {
   const search = useSearchParams();
   const { data, isPending } = useSession();
   const user = data?.user as { id: string; role?: string; vipExpiresAt?: string | null } | undefined;
-  const [allowed, setAllowed] = useState<boolean | null>(null);
+  const vip = useVipFeatures(user);
   const initialMode = parseMode(search.get("mode"));
 
-  useEffect(() => {
-    if (!user) {
-      setAllowed(false);
-      return;
-    }
-    setAllowed(userHasVip(user.role || "MEMBER", user.vipExpiresAt));
-  }, [user]);
-
-  if (isPending || allowed === null) {
+  if (isPending || vip.loading) {
     return <p className="pulse-soft ui muted">Loading…</p>;
   }
 
   if (!user) {
     return (
       <div className="panel p-6 max-w-lg rise-in">
-        <p className="forum-kicker">VIP Practice</p>
+        <p className="forum-kicker">Practice</p>
         <h1 className="text-3xl mt-1 mb-3">Sign in required</h1>
         <p className="muted ui text-sm mb-4">Log in to use Practice.</p>
         <Link href="/login" className="btn btn-accent">
@@ -44,13 +36,13 @@ function PracticeInner() {
     );
   }
 
-  if (!allowed) {
+  if (!vip.allowed) {
     return (
       <div className="panel p-6 max-w-lg rise-in">
         <p className="forum-kicker">VIP Practice</p>
         <h1 className="text-3xl mt-1 mb-3">VIP only</h1>
         <p className="muted ui text-sm mb-4">
-          Needs <strong>VIP (30 days)</strong> or <strong>VIP (Permanent)</strong>. Ask an admin.
+          Practice is locked to VIP right now. Ask an LTA+ to open features for everyone, or get VIP.
         </p>
         <div className="flex flex-wrap gap-2">
           <Link href="/openings" className="btn btn-accent">
@@ -71,10 +63,11 @@ function PracticeInner() {
     <div>
       <header className="forum-hero">
         <div>
-          <p className="forum-kicker">VIP</p>
+          <p className="forum-kicker">{vip.personalVip ? "VIP" : "Open"}</p>
           <h1>Practice</h1>
           <p className="muted ui text-sm mt-2 mb-0 max-w-xl">
             Play both sides, vs a bot, or with a coach. Drill mistakes from your reviews.
+            {vip.openToAll && !vip.personalVip ? " Open to all members." : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

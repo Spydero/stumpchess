@@ -20,7 +20,7 @@ import {
 import { useSession } from "@/lib/auth-client";
 import { getSocket } from "@/lib/socket";
 import { apiFetch } from "@/lib/api";
-import { userHasVip } from "@/lib/roles";
+import { useVipFeatures } from "@/lib/vip-features";
 
 export default function PlayPage() {
   const { data, isPending } = useSession();
@@ -38,7 +38,8 @@ export default function PlayPage() {
   const [inviteUrl, setInviteUrl] = useState("");
 
   const bot = playableBotById(botId);
-  const isVip = user ? userHasVip(user.role || "MEMBER", user.vipExpiresAt) : false;
+  const vip = useVipFeatures(user);
+  const isVip = vip.allowed;
 
   useEffect(() => {
     if (!user) return;
@@ -243,7 +244,7 @@ export default function PlayPage() {
         <p className="ui text-xs muted mt-3 mb-0">
           {isVip ? (
             <>
-              VIP:{" "}
+              {vip.personalVip ? "VIP: " : "Practice: "}
               <Link href="/practice?mode=coach" className="link-accent">
                 Play with coach
               </Link>
@@ -262,11 +263,7 @@ export default function PlayPage() {
             </>
           ) : (
             <>
-              Coach and mistake drills need VIP.{" "}
-              <Link href="/practice" className="link-accent">
-                Practice
-              </Link>
-              {" · "}
+              Coach and mistake drills are VIP-only right now.{" "}
               <Link href="/openings" className="link-accent">
                 Openings explorer
               </Link>

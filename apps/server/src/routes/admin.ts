@@ -130,9 +130,34 @@ export function createAdminRouter() {
         id: "site",
         registrationOpen: open ?? true,
         inviteCode: inviteCode ?? null,
+        vipFeaturesOpen: true,
       },
     });
     res.json(setting);
+  });
+
+  /** LTA+: open analysis/Practice to all members, or lock to VIP+. */
+  router.get("/vip-features", requireRank("LTA"), async (_req, res) => {
+    const setting = await prisma.siteSetting.upsert({
+      where: { id: "site" },
+      update: {},
+      create: { id: "site", registrationOpen: true, vipFeaturesOpen: true },
+    });
+    res.json({ vipFeaturesOpen: setting.vipFeaturesOpen });
+  });
+
+  router.post("/vip-features", requireRank("LTA"), async (req: AuthedRequest, res) => {
+    const open = Boolean(req.body?.open);
+    const setting = await prisma.siteSetting.upsert({
+      where: { id: "site" },
+      update: { vipFeaturesOpen: open },
+      create: {
+        id: "site",
+        registrationOpen: true,
+        vipFeaturesOpen: open,
+      },
+    });
+    res.json({ vipFeaturesOpen: setting.vipFeaturesOpen });
   });
 
   return router;

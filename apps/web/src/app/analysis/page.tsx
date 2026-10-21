@@ -17,7 +17,7 @@ import {
   uciToMove,
 } from "@/lib/stockfish";
 import { CLASS_META, classifyMove, type ClassLabel } from "@/lib/classify";
-import { userHasVip } from "@/lib/roles";
+import { useVipFeatures } from "@/lib/vip-features";
 import { EvalBar } from "@/components/EvalBar";
 import { MoveBadge } from "@/components/MoveBadge";
 import {
@@ -100,7 +100,7 @@ function AnalysisPageInner() {
   const searchParams = useSearchParams();
   const { data, isPending } = useSession();
   const user = data?.user as { id: string; role?: string; vipExpiresAt?: string | null } | undefined;
-  const [allowed, setAllowed] = useState<boolean | null>(null);
+  const vip = useVipFeatures(user);
   const [pgn, setPgn] = useState("");
   const [moves, setMoves] = useState<AnalyzedMove[]>([]);
   /** -1 = start position */
@@ -136,20 +136,6 @@ function AnalysisPageInner() {
   useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
-
-  useEffect(() => {
-    if (!user) {
-      setAllowed(false);
-      return;
-    }
-    if (userHasVip(user.role || "MEMBER", user.vipExpiresAt)) {
-      setAllowed(true);
-      return;
-    }
-    apiFetch("/api/games/analyze/check", { method: "POST", userId: user.id })
-      .then(() => setAllowed(true))
-      .catch(() => setAllowed(false));
-  }, [user]);
 
   useEffect(() => {
     try {
@@ -600,7 +586,7 @@ function AnalysisPageInner() {
     };
   }, [current]);
 
-  if (isPending) return <p className="pulse-soft ui muted">Loading…</p>;
+  if (isPending || vip.loading) return <p className="pulse-soft ui muted">Loading…</p>;
   if (!user) {
     return (
       <div className="panel p-5">
@@ -613,17 +599,16 @@ function AnalysisPageInner() {
       </div>
     );
   }
-  if (allowed === false) {
+  if (!vip.allowed) {
     return (
       <div className="panel p-6 max-w-lg">
         <h1 className="text-3xl mb-3">Game Review</h1>
         <p className="muted ui">
-          Analysis needs VIP. Ask an admin.
+          Analysis is VIP-only right now. Ask an LTA+ to open features for everyone.
         </p>
       </div>
     );
   }
-  if (allowed === null) return <p className="pulse-soft ui muted">Loading…</p>;
 
   const movePairs: Array<{ n: number; w?: AnalyzedMove; b?: AnalyzedMove; wi?: number; bi?: number }> =
     [];
