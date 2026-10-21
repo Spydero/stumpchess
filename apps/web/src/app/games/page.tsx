@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import {
+  PERSONALITY_BOTS,
+  decodeBotLevel,
+  formatEngineElo,
+} from "@chess/shared";
 import { useSession } from "@/lib/auth-client";
 import { apiFetch } from "@/lib/api";
 import { userHasVip } from "@/lib/roles";
@@ -12,12 +17,27 @@ type Game = {
   timeControl: string;
   endedAt: string | null;
   isBot: boolean;
+  botLevel?: number | null;
   pgn?: string;
   analyzedAt?: string | null;
   analysisDepth?: number | null;
   white: { username: string } | null;
   black: { username: string } | null;
 };
+
+function botSideLabel(level: number | null | undefined) {
+  if (level == null) return "Practice";
+  const d = decodeBotLevel(level);
+  if (d.kind === "engine") return `Stockfish ${formatEngineElo(d.elo)}`;
+  const named = PERSONALITY_BOTS.find((b) => b.skill === d.skill);
+  return named?.name || "Bot";
+}
+
+function gameTitle(g: Game) {
+  const white = g.white?.username || (g.isBot && !g.white ? botSideLabel(g.botLevel) : "White");
+  const black = g.black?.username || (g.isBot && !g.black ? botSideLabel(g.botLevel) : "Black");
+  return `${white} vs ${black}`;
+}
 
 export default function GamesPage() {
   const { data } = useSession();
@@ -95,7 +115,7 @@ export default function GamesPage() {
           <div key={g.id} className="table-row ui text-sm">
             <div className="min-w-0">
               <Link href={`/game/${g.id}`} className="font-semibold hover:underline">
-                {g.white?.username || "White"} vs {g.black?.username || (g.isBot ? "Bot" : "Black")}
+                {gameTitle(g)}
               </Link>
               {g.endedAt && (
                 <p className="m-0 mt-1 muted text-xs">{new Date(g.endedAt).toLocaleString()}</p>

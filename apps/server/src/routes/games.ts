@@ -101,6 +101,101 @@ export function createGamesRouter() {
     res.status(201).json(game);
   });
 
+  /**
+   * Persist a finished Practice session (VIP). One-shot create so abandoned boards
+   * never leave orphan ACTIVE games.
+   */
+  router.post("/practice", requireUser, async (req: AuthedRequest, res) => {
+    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!hasVipAccess(user.role as Role, user.vipExpiresAt)) {
+      return res.status(403).json({ error: "VIP required" });
+    }
+
+    const {
+      pgn,
+      fen,
+      result,
+      color,
+      level,
+      timeControl,
+      initialMs,
+      incrementMs,
+      mode,
+    } = req.body as {
+      pgn?: string;
+      fen?: string;
+      result?: string;
+      color?: string;
+      level?: number | null;
+      timeControl?: string;
+      initialMs?: number;
+      incrementMs?: number;
+      mode?: string;
+    };
+
+    if (!result || !["1-0", "0-1", "1/2-1/2"].includes(result)) {
+      return res.status(400).json({ error: "Invalid result" });
+    }
+    if (!pgn || typeof pgn !== "string" || pgn.length > 200_000) {
+      return res.status(400).json({ error: "Invalid PGN" });
+    }
+
+    let loadedFen = fen;
+    try {
+      const chess = new Chess();
+      chess.loadPgn(pgn);
+      if (chess.history().length < 1) {
+        return res.status(400).json({ error: "Empty game" });
+      }
+      loadedFen = chess.fen();
+    } catch {
+      return res.status(400).json({ error: "Invalid PGN" });
+    }
+
+    const playColor = color === "b" ? "b" : "w";
+    const isSandbox = mode === "sandbox";
+    let botLevel: number | null = null;
+    if (!isSandbox && level != null && Number.isFinite(Number(level))) {
+      const raw = Number(level);
+      botLevel =
+        raw >= 800 && raw <= 2850
+          ? Math.round(raw)
+          : Math.min(20, Math.max(0, raw));
+    }
+
+    const tcId = typeof timeControl === "string" && timeControl.trim() ? timeControl.trim().slice(0, 32) : "practice";
+    const initMs = Number.isFinite(Number(initialMs)) ? Math.max(0, Math.round(Number(initialMs))) : 0;
+    const incMs = Number.isFinite(Number(incrementMs)) ? Math.max(0, Math.round(Number(incrementMs))) : 0;
+
+    const whiteId = isSandbox || playColor === "w" ? req.user!.id : null;
+    const blackId = !isSandbox && playColor === "b" ? req.user!.id : null;
+    let winnerId: string | null = null;
+    if (result === "1-0") winnerId = whiteId;
+    if (result === "0-1") winnerId = blackId;
+
+    const now = new Date();
+    const game = await prisma.game.create({
+      data: {
+        status: "FINISHED",
+        timeControl: tcId,
+        initialMs: initMs,
+        incrementMs: incMs,
+        whiteId,
+        blackId,
+        isBot: true,
+        botLevel,
+        pgn,
+        fen: typeof loadedFen === "string" ? loadedFen : undefined,
+        result,
+        winnerId: winnerId ?? undefined,
+        startedAt: now,
+        endedAt: now,
+      },
+    });
+    res.status(201).json(game);
+  });
+
   router.post("/challenge", requireUser, async (req: AuthedRequest, res) => {
     const username = String(req.body?.username || "").trim();
     const tcId = String(req.body?.timeControl || "5+0");

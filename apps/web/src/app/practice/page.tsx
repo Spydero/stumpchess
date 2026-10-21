@@ -86,7 +86,7 @@ function PracticeInner() {
           </Link>
         </div>
       </header>
-      <PracticeBoard key={initialMode} initialMode={initialMode} />
+      <PracticeBoard key={initialMode} initialMode={initialMode} userId={user.id} />
     </div>
   );
 }

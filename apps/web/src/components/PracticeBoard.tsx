@@ -12,6 +12,7 @@ import {
   PRACTICE_TIME_CONTROLS,
   STOCKFISH_BOT,
   clampEngineElo,
+  encodeBotLevel,
   engineThinkMs,
   formatEngineElo,
   isEngineBot,
@@ -24,6 +25,7 @@ import {
 import { EvalBar } from "@/components/EvalBar";
 import { MoveBadge } from "@/components/MoveBadge";
 import { PracticeChessBoard, type PracticeBoardMarker } from "@/components/PracticeChessBoard";
+import { apiFetch } from "@/lib/api";
 import { CLASS_META, classifyMove, type ClassLabel } from "@/lib/classify";
 import { chooseEngineMove, chooseStyledMove } from "@/lib/bot-personality";
 import { formatClock, needsPromotion, playMoveSound } from "@/lib/practice-utils";
@@ -100,7 +102,13 @@ function buildPgn(chess: Chess, headers: Record<string, string>) {
   return pgn;
 }
 
-export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: PracticeMode }) {
+export function PracticeBoard({
+  initialMode = "sandbox",
+  userId,
+}: {
+  initialMode?: PracticeMode;
+  userId: string;
+}) {
   const [mode, setMode] = useState<PracticeMode>(initialMode);
   const [botId, setBotId] = useState<string>(PERSONALITY_BOTS[3].id);
   const [botLane, setBotLane] = useState<"personality" | "engine">("personality");
@@ -121,6 +129,8 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
   const [status, setStatus] = useState("");
   const [gameStatus, setGameStatus] = useState<"ACTIVE" | "FINISHED">("ACTIVE");
   const [result, setResult] = useState<string | null>(null);
+  const [savedGameId, setSavedGameId] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error" | "skipped">("idle");
   const [selected, setSelected] = useState<Square | null>(null);
   const [optionSquares, setOptionSquares] = useState<Record<string, React.CSSProperties>>({});
   const [annotated, setAnnotated] = useState<AnnotatedMove[]>([]);
@@ -152,12 +162,27 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
   const soundRef = useRef(true);
   const tcRef = useRef(practiceTcById("5+0"));
   const flaggedRef = useRef(false);
+  const saveLockRef = useRef(false);
+  const modeRef = useRef(mode);
+  const playerColorRef = useRef(playerColor);
+  const botRef = useRef<PlayableBot>(playableBotById(PERSONALITY_BOTS[3].id));
+  const engineEloSaveRef = useRef(engineElo);
 
   const bot: PlayableBot = playableBotById(botLane === "engine" ? STOCKFISH_BOT.id : botId);
   const engineMode = isEngineBot(bot);
   useEffect(() => {
     engineEloRef.current = engineElo;
+    engineEloSaveRef.current = engineElo;
   }, [engineElo]);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+  useEffect(() => {
+    playerColorRef.current = playerColor;
+  }, [playerColor]);
+  useEffect(() => {
+    botRef.current = bot;
+  }, [bot]);
   const tc = practiceTcById(tcId);
   const timed = tc.initialMs > 0;
   const strength = COACH_STRENGTH.find((s) => s.id === coachStrength) || COACH_STRENGTH[1];
@@ -207,17 +232,80 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
     setOptionSquares(styles);
   }, []);
 
-  const finishGame = useCallback((res: string, message: string) => {
-    if (gameStatusRef.current === "FINISHED") return;
-    gameStatusRef.current = "FINISHED";
-    setGameStatus("FINISHED");
-    setResult(res);
-    setStatus(message);
-    setPendingPromo(null);
-    setPremove(null);
-    premoveRef.current = null;
-    if (soundRef.current) playMoveSound("gameend");
-  }, []);
+  const persistFinishedGame = useCallback(
+    async (res: string) => {
+      if (saveLockRef.current) return;
+      const history = chessRef.current.history();
+      if (history.length < 1) {
+        setSaveState("skipped");
+        return;
+      }
+      saveLockRef.current = true;
+      setSaveState("saving");
+      const curBot = botRef.current;
+      const curMode = modeRef.current;
+      const curColor = playerColorRef.current;
+      const curTc = tcRef.current;
+      const vs = curMode === "bot" || curMode === "coach";
+      const level =
+        curMode === "sandbox"
+          ? null
+          : encodeBotLevel(
+              isEngineBot(curBot)
+                ? { kind: "engine", elo: engineEloSaveRef.current }
+                : { kind: "personality", skill: curBot.skill }
+            );
+      const pgn = buildPgn(chessRef.current, {
+        Event: curMode === "coach" ? "Stumpchess Practice Coach" : "Stumpchess Practice",
+        White: vs ? (curColor === "w" ? "You" : curBot.name) : "Practice",
+        Black: vs ? (curColor === "b" ? "You" : curBot.name) : "Practice",
+        Result: res,
+        TimeControl:
+          curTc.initialMs > 0
+            ? `${curTc.initialMs / 1000}+${curTc.incrementMs / 1000}`
+            : "-",
+      });
+      try {
+        const game = await apiFetch("/api/games/practice", {
+          method: "POST",
+          userId,
+          body: JSON.stringify({
+            pgn,
+            fen: chessRef.current.fen(),
+            result: res,
+            color: curColor,
+            level,
+            timeControl: curTc.id,
+            initialMs: curTc.initialMs,
+            incrementMs: curTc.incrementMs,
+            mode: curMode,
+          }),
+        });
+        setSavedGameId(game.id);
+        setSaveState("saved");
+      } catch {
+        saveLockRef.current = false;
+        setSaveState("error");
+      }
+    },
+    [userId]
+  );
+
+  const finishGame = useCallback(
+    (res: string, message: string) => {
+      if (gameStatusRef.current === "FINISHED") return;
+      gameStatusRef.current = "FINISHED";
+      setGameStatus("FINISHED");
+      setResult(res);
+      setStatus(message);
+      setPendingPromo(null);
+      setPremove(null);
+      premoveRef.current = null;
+      if (soundRef.current) playMoveSound("gameend");
+      void persistFinishedGame(res);
+    },
+    [persistFinishedGame]
+  );
 
   const syncFen = useCallback(() => {
     const c = chessRef.current;
@@ -773,6 +861,9 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
     gameStatusRef.current = "ACTIVE";
     setGameStatus("ACTIVE");
     setResult(null);
+    saveLockRef.current = false;
+    setSavedGameId(null);
+    setSaveState("idle");
     const nextTc = practiceTcById(nextTcId);
     tcRef.current = nextTc;
     resetClocks(nextTc);
@@ -855,6 +946,12 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
     } catch {
       /* ignore */
     }
+  }
+
+  function retrySave() {
+    if (!result || saveState === "saving" || saveState === "saved") return;
+    saveLockRef.current = false;
+    void persistFinishedGame(result);
   }
 
   const setPremoveSafe = useCallback((from: string, to: string) => {
@@ -1142,19 +1239,49 @@ export function PracticeBoard({ initialMode = "sandbox" }: { initialMode?: Pract
           </p>
 
           {gameStatus === "FINISHED" && (
-            <div className="panel p-3 flex flex-wrap items-center gap-2">
-              <p className="ui text-sm m-0 font-semibold flex-1">
-                Game over · {result}
+            <div className="panel p-3 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="ui text-sm m-0 font-semibold flex-1">
+                  Game over · {result}
+                </p>
+                <button type="button" className="btn btn-ghost !text-xs" onClick={exportPgn}>
+                  Copy PGN
+                </button>
+                <Link
+                  href={savedGameId ? `/analysis?gameId=${savedGameId}` : "/analysis"}
+                  className="btn btn-accent !text-xs"
+                  onClick={openReview}
+                >
+                  Open review
+                </Link>
+                <button type="button" className="btn btn-ghost !text-xs" onClick={() => resetBoard()}>
+                  New game
+                </button>
+              </div>
+              <p className="ui text-xs muted m-0">
+                {saveState === "saving" && "Saving to your games…"}
+                {saveState === "saved" && savedGameId && (
+                  <>
+                    Saved.{" "}
+                    <Link href="/games" className="link-accent">
+                      My games
+                    </Link>
+                    {" · "}
+                    <Link href={`/practice/mistakes?gameId=${savedGameId}`} className="link-accent">
+                      Mistakes
+                    </Link>
+                  </>
+                )}
+                {saveState === "error" && (
+                  <>
+                    Could not save.{" "}
+                    <button type="button" className="link-accent ui text-xs" onClick={retrySave}>
+                      Retry
+                    </button>
+                  </>
+                )}
+                {saveState === "skipped" && "Not saved (no moves)."}
               </p>
-              <button type="button" className="btn btn-ghost !text-xs" onClick={exportPgn}>
-                Copy PGN
-              </button>
-              <Link href="/analysis" className="btn btn-accent !text-xs" onClick={openReview}>
-                Open review
-              </Link>
-              <button type="button" className="btn btn-ghost !text-xs" onClick={() => resetBoard()}>
-                New game
-              </button>
             </div>
           )}
 

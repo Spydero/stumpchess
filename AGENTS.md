@@ -216,6 +216,7 @@ Helpers: `encodeBotLevel` / `decodeBotLevel`.
 
 - TC picker + clocks (start **after first move**); flag; increments
 - Promotion picker, resign/draw/takeback, copy PGN, open `/analysis` via `sessionStorage` key `stumpchess-analyze-pgn`
+- **Saves finished games** via `POST /api/games/practice` (VIP, one-shot FINISHED row) so they appear under `/games` and can feed mistake drills after review
 - Premove vs bot; optional Web Audio move sounds
 - Live coach: eval bar, MultiPV **candidate arrows** (within ~25cp), Best/Mistake labels after human moves
 - Coach strength presets: Fast/Normal/Strong/Deep depths
