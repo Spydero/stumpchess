@@ -29,20 +29,20 @@ export default function HomePage() {
           stump<span className="text-[var(--accent)]">chess</span>
         </h1>
         <p className="muted ui text-base sm:text-lg max-w-md mb-6">
-          Play online, challenge friends, talk on the forum, and review your games.
+          Play online, explore openings, challenge friends, and review your games.
         </p>
         <div className="flex flex-wrap gap-2">
           <Link href="/play" className="btn btn-accent">
             Play
+          </Link>
+          <Link href="/openings" className="btn btn-ghost">
+            Openings
           </Link>
           <Link href="/play#bot" className="btn btn-ghost">
             vs Computer
           </Link>
           <Link href="/practice" className="btn btn-ghost">
             Practice
-          </Link>
-          <Link href="/forum" className="btn btn-ghost">
-            Forum
           </Link>
         </div>
 
@@ -95,11 +95,11 @@ export default function HomePage() {
           })}
         </div>
         <div className="mt-3 flex gap-2">
+          <Link href="/openings" className="btn btn-ghost flex-1 !text-sm">
+            Openings
+          </Link>
           <Link href="/leaders" className="btn btn-ghost flex-1 !text-sm">
             Leaders
-          </Link>
-          <Link href="/analysis" className="btn btn-ghost flex-1 !text-sm">
-            Analysis
           </Link>
         </div>
       </section>

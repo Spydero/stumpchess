@@ -55,12 +55,13 @@ export default function GamesPage() {
   }
 
   return (
-    <div>
-      <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
-        <div>
-          <h1 className="text-3xl m-0">Games</h1>
-          <p className="ui text-xs muted m-0 mt-1">Kept for 30 days, then deleted automatically.</p>
-        </div>
+    <div className="rise-in">
+      <div className="flex flex-wrap items-end justify-between gap-3 mb-5">
+        <header className="page-hero">
+          <p className="forum-kicker">History</p>
+          <h1 className="text-3xl sm:text-4xl mt-1 mb-1">Games</h1>
+          <p className="ui text-sm muted m-0">Kept for 30 days, then deleted automatically.</p>
+        </header>
         <div className="flex gap-2">
           <button
             type="button"

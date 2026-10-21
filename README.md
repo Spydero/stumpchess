@@ -1,6 +1,6 @@
 # stumpchess
 
-Lightweight chess platform: random matchmaking, classic forum, roles (VIP / STA / LTA / Manager / Owner), and **VIP-only** full analysis powered by Stockfish in the browser.
+Lightweight chess platform: random matchmaking, openings explorer (local ECO book), classic forum, roles (VIP / STA / LTA / Manager / Owner), and **VIP-only** full analysis powered by Stockfish in the browser.
 
 **AI / new chat:** start by reading [`AGENTS.md`](AGENTS.md) (full file map, bot lanes, Practice invariants, pitfalls).
 
@@ -50,12 +50,17 @@ Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` / `apps/web/.env.loc
 
 | Role | Notes |
 |------|--------|
-| Member | Play, forum, search, bots |
-| VIP 30 / VIP Permanent | Full analysis, Practice (coach / both sides), mistake drills |
+| Member | Play, forum, search, bots, openings explorer (book only) |
+| VIP 30 / VIP Permanent | Full analysis, Practice (coach / both sides), mistake drills, openings engine analysis |
 | STA (red, 28d) | Limited forum mod |
 | LTA (blue) | Assign VIP/STA |
 | Manager | High staff |
 | Owner (`jOjo`) | All; public stats hidden |
+
+## Openings
+
+- **`/openings`**: offline explorer from vendored [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0). Rebuild with `pnpm --filter @chess/web build-openings`.
+- Book browsing is free; live Stockfish on the explorer board needs VIP.
 
 ## VIP Practice
 

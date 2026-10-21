@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "copy-engine": "node scripts/copy-engine.mjs",
-    "predev": "pnpm copy-engine",
-    "prebuild": "pnpm copy-engine",
+    "build-openings": "node scripts/build-openings.mjs",
+    "predev": "pnpm copy-engine && pnpm build-openings",
+    "prebuild": "pnpm copy-engine && pnpm build-openings",
     "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start",

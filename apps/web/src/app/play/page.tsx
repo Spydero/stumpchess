@@ -117,9 +117,21 @@ export default function PlayPage() {
   if (isPending) return <p className="pulse-soft ui muted">Loading…</p>;
 
   return (
+    <div className="rise-in">
+      <header className="page-hero mb-5">
+        <p className="forum-kicker">Play</p>
+        <h1 className="text-3xl sm:text-4xl mt-1 mb-2">Find a game</h1>
+        <p className="muted ui text-base max-w-xl m-0">
+          Queue for a match, play a bot, or challenge a clubmate.{" "}
+          <Link href="/openings" className="link-accent">
+            Browse openings
+          </Link>{" "}
+          anytime.
+        </p>
+      </header>
     <div className="grid gap-4 md:gap-5 md:grid-cols-2 xl:grid-cols-3">
-      <section className="panel p-5">
-        <h1 className="text-2xl sm:text-3xl mb-4">Quick match</h1>
+      <section className="panel p-5 panel-interactive">
+        <h2 className="text-2xl sm:text-3xl mb-4">Quick match</h2>
         <div className="flex flex-wrap gap-2 mb-4">
           {TIME_CONTROLS.map((t) => (
             <button
@@ -147,7 +159,7 @@ export default function PlayPage() {
         )}
       </section>
 
-      <section id="bot" className="panel p-5">
+      <section id="bot" className="panel p-5 panel-interactive">
         <h2 className="text-2xl sm:text-3xl mb-2">vs Computer</h2>
         <p className="ui text-sm mb-1">
           <span className="font-semibold">{bot.name}</span>
@@ -240,6 +252,10 @@ export default function PlayPage() {
                 Practice board
               </Link>
               {" · "}
+              <Link href="/openings" className="link-accent">
+                Openings
+              </Link>
+              {" · "}
               <Link href="/practice/mistakes" className="link-accent">
                 Your mistakes
               </Link>
@@ -250,12 +266,16 @@ export default function PlayPage() {
               <Link href="/practice" className="link-accent">
                 Practice
               </Link>
+              {" · "}
+              <Link href="/openings" className="link-accent">
+                Openings explorer
+              </Link>
             </>
           )}
         </p>
       </section>
 
-      <section className="panel p-5 md:col-span-2 xl:col-span-1">
+      <section className="panel p-5 panel-interactive md:col-span-2 xl:col-span-1">
         <h2 className="text-2xl sm:text-3xl mb-4">Challenge</h2>
         <form onSubmit={challenge} className="space-y-3">
           <input
@@ -277,6 +297,7 @@ export default function PlayPage() {
       {error && (
         <p className="text-[var(--danger)] ui text-sm md:col-span-2 xl:col-span-3">{error}</p>
       )}
+    </div>
     </div>
   );
 }

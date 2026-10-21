@@ -9,6 +9,7 @@ import { useTheme } from "./ThemeProvider";
 
 const LINKS = [
   { href: "/play", label: "Play" },
+  { href: "/openings", label: "Openings" },
   { href: "/practice", label: "Practice" },
   { href: "/games", label: "Games" },
   { href: "/leaders", label: "Leaders" },
@@ -33,13 +34,13 @@ export function Nav() {
     user?.role === "STA";
 
   return (
-    <header className="sticky top-0 z-40 border-b border-[var(--line)] bg-[var(--header)] backdrop-blur-md">
+    <header className="site-header sticky top-0 z-40 border-b border-[var(--line)] bg-[var(--header)] backdrop-blur-md">
       <div className="shell flex items-center justify-between gap-3 py-2.5">
-        <Link href="/" className="text-lg sm:text-xl shrink-0" onClick={() => setOpen(false)}>
+        <Link href="/" className="brand-mark text-lg sm:text-xl shrink-0" onClick={() => setOpen(false)}>
           stump<span className="text-[var(--accent)]">chess</span>
         </Link>
 
-        <nav className="hidden md:flex items-center gap-1 lg:gap-2 ui text-sm">
+        <nav className="hidden md:flex items-center gap-0.5 lg:gap-1 ui text-sm">
           {LINKS.map((l) => (
             <Link
               key={l.href}

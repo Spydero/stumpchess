@@ -12,8 +12,9 @@ Human-facing overview: [`README.md`](README.md). This file is for agents.
 
 - Online play (matchmaking + challenges + WebRTC with socket relay fallback)
 - vs Computer (personality bots + Stockfish engine lane)
+- **Openings explorer** (`/openings`) from a local ECO book (no external explorer API)
 - Classic forum with roles
-- **VIP**: deep game review (`/analysis`), Practice (`/practice`), mistake drills
+- **VIP**: deep game review (`/analysis`), Practice (`/practice`), mistake drills, openings engine analysis
 - Client-side **Stockfish 19 lite** WASM (no cloud engine cost)
 
 Owner account: username `jOjo`, avatar `/avatars/tree-stump.jpg`, public stats hidden.
@@ -60,6 +61,7 @@ pnpm db:push && pnpm db:seed
 pnpm dev                          # web + server
 pnpm --filter @chess/shared build # after editing packages/shared/src
 cd apps/web && node scripts/copy-engine.mjs   # copy SF WASM into public/engines
+cd apps/web && pnpm build-openings           # rebuild openings-book.json from TSV
 ```
 
 Engine binaries are **gitignored** (`apps/web/public/engines/*.js|*.wasm`). They are copied from `node_modules/stockfish` via `apps/web/scripts/copy-engine.mjs` (often hooked from web `postinstall` / package scripts). Without them, analysis/bots fail in the browser.
@@ -74,8 +76,8 @@ Defined in `packages/shared/src/index.ts` + Prisma `Role` enum.
 
 | Role | Access |
 |------|--------|
-| MEMBER | Play, forum, free vs computer |
-| VIP_30 / VIP_PERM | `/analysis`, `/practice`, mistake drills (`hasVipAccess`) |
+| MEMBER | Play, forum, free vs computer, openings book |
+| VIP_30 / VIP_PERM | `/analysis`, `/practice`, mistake drills, openings Analysis toggle (`hasVipAccess`) |
 | STA | Limited forum mod (time-limited) |
 | LTA+ | Can assign VIP/STA (`/admin`) |
 | OWNER | Everything; profile stats hidden |
@@ -90,6 +92,7 @@ VIP check: `hasVipAccess(role, vipExpiresAt)` in shared; web helper `apps/web/sr
 |------|------|--------|
 | `/` | `app/page.tsx` | Home |
 | `/play` | `app/play/page.tsx` | Queue, vs computer, challenge |
+| `/openings` | `app/openings/page.tsx` | ECO book explorer; VIP Analysis toggle |
 | `/game/[id]` | `app/game/[id]/page.tsx` | Live game shell → `GameBoard` |
 | `/games` | `app/games/page.tsx` | History; VIP → analyze / mistakes |
 | `/analysis` | `app/analysis/page.tsx` | VIP deep review (SF batch) |
@@ -293,6 +296,7 @@ Owner avatar asset: `public/avatars/tree-stump.jpg` (seed sets `image`). Fallbac
 | Bot API level encoding | `encodeBotLevel` + `routes/games.ts` POST `/bot` |
 | Matchmaking | `server/src/matchmaking.ts` |
 | Copy SF into public | `apps/web/scripts/copy-engine.mjs` |
+| Openings book / explorer UI | vendored TSV in `apps/web/data/chess-openings/`, `build-openings.mjs`, `lib/openings.ts`, `OpeningsExplorer.tsx` |
 
 ---
 
@@ -307,13 +311,27 @@ Owner avatar asset: `public/avatars/tree-stump.jpg` (seed sets `image`). Fallbac
 - [ ] Practice clocks must not run before first move.
 - [ ] Cancel bot/coach gens on takeback / new game / unmount.
 - [ ] Never commit `.env`, `*.db`, or large `public/engines/*.wasm` (gitignored).
+- [ ] Openings explorer must stay offline (vendored ECO book). Do not call Lichess explorer APIs.
 
 ---
+
+## Openings explorer
+
+| File | Role |
+|------|------|
+| `apps/web/data/chess-openings/*.tsv` | Vendored lichess-org/chess-openings (CC0) |
+| `apps/web/scripts/build-openings.mjs` | TSV → `src/data/openings-book.json` trie |
+| `apps/web/src/lib/openings.ts` | Lookup / children / roots |
+| `components/OpeningsExplorer.tsx` | Board + book table + VIP Analysis toggle |
+| `app/openings/page.tsx` | Route (browse free; analysis VIP) |
+
+“Popularity” bars = book-line coverage counts, not live win rates.
 
 ## Deferred / not shipped
 
 - Full rated puzzle bank (mistake drills are the current “puzzle-like” loop)
 - Payment for VIP (admin-assigned only)
+- Live master/Lichess win-rate explorer stats
 
 ---
 

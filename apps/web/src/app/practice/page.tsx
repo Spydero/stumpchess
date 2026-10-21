@@ -53,10 +53,13 @@ function PracticeInner() {
           Needs <strong>VIP (30 days)</strong> or <strong>VIP (Permanent)</strong>. Ask an admin.
         </p>
         <div className="flex flex-wrap gap-2">
+          <Link href="/openings" className="btn btn-accent">
+            Openings explorer
+          </Link>
           <Link href="/play" className="btn btn-ghost">
             Play free vs computer
           </Link>
-          <Link href="/forum" className="btn btn-accent">
+          <Link href="/forum" className="btn btn-ghost">
             Ask on the forum
           </Link>
         </div>
@@ -74,9 +77,14 @@ function PracticeInner() {
             Play both sides, vs a bot, or with a coach. Drill mistakes from your reviews.
           </p>
         </div>
-        <Link href="/practice/mistakes" className="btn btn-ghost">
-          Your mistakes
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/openings" className="btn btn-ghost">
+            Openings
+          </Link>
+          <Link href="/practice/mistakes" className="btn btn-ghost">
+            Your mistakes
+          </Link>
+        </div>
       </header>
       <PracticeBoard key={initialMode} initialMode={initialMode} />
     </div>

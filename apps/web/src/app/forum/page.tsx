@@ -37,7 +37,11 @@ export default function ForumPage() {
           <p className="forum-kicker">Community</p>
           <h1>Forum</h1>
           <p className="muted ui text-sm mt-2 mb-0 max-w-lg">
-            Openings, tactics, and club chat.
+            Club chat and theory talk. Prefer the{" "}
+            <Link href="/openings" className="link-accent">
+              openings explorer
+            </Link>{" "}
+            for named lines.
           </p>
         </div>
         {categories && categories.length > 0 && (

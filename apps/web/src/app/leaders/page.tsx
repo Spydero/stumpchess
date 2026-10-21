@@ -23,9 +23,13 @@ export default function LeadersPage() {
   }, []);
 
   return (
-    <div>
-      <h1 className="text-3xl mb-4">Leaders</h1>
-      <div className="panel">
+    <div className="rise-in">
+      <header className="page-hero mb-5">
+        <p className="forum-kicker">Club</p>
+        <h1 className="text-3xl sm:text-4xl mt-1 mb-2">Leaders</h1>
+        <p className="muted ui text-base max-w-xl m-0">Wins ladder for members who show public stats.</p>
+      </header>
+      <div className="panel overflow-hidden">
         {leaders.map((u, i) => (
           <Link key={u.id} href={`/u/${u.username}`} className="table-row ui text-sm">
             <div className="flex items-center gap-3 min-w-0">
