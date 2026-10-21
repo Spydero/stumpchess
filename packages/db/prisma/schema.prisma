@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  MEMBER
+  VIP_30
+  VIP_PERM
+  STA
+  LTA
+  MANAGER
+  OWNER
+}
+
+enum GameStatus {
+  WAITING
+  ACTIVE
+  FINISHED
+  ABORTED
+}
+
+model User {
+  id              String    @id @default(cuid())
+  name            String
+  email           String    @unique
+  emailVerified   Boolean   @default(false)
+  image           String?
+  username        String    @unique
+  displayUsername String?
+  role            Role      @default(MEMBER)
+  vipExpiresAt  DateTime?
+  staExpiresAt  DateTime?
+  wins          Int       @default(0)
+  losses        Int       @default(0)
+  draws         Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  banned        Boolean   @default(false)
+
+  sessions      Session[]
+  accounts      Account[]
+  whiteGames    Game[]           @relation("WhiteGames")
+  blackGames    Game[]           @relation("BlackGames")
+  threads       ForumThread[]
+  posts         ForumPost[]
+  roleChanges   RoleChangeLog[]  @relation("TargetUser")
+  roleAssigned  RoleChangeLog[]  @relation("ActorUser")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Game {
+  id           String     @id @default(cuid())
+  status       GameStatus @default(WAITING)
+  timeControl  String
+  initialMs    Int
+  incrementMs  Int        @default(0)
+  whiteId      String?
+  blackId      String?
+  white        User?      @relation("WhiteGames", fields: [whiteId], references: [id])
+  black        User?      @relation("BlackGames", fields: [blackId], references: [id])
+  pgn          String     @default("")
+  fen          String     @default("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+  result       String?
+  winnerId     String?
+  isBot        Boolean    @default(false)
+  botLevel     Int?
+  createdAt    DateTime   @default(now())
+  startedAt    DateTime?
+  endedAt      DateTime?
+}
+
+model ForumCategory {
+  id          String        @id @default(cuid())
+  name        String
+  description String        @default("")
+  slug        String        @unique
+  sortOrder   Int           @default(0)
+  threads     ForumThread[]
+}
+
+model ForumThread {
+  id         String        @id @default(cuid())
+  title      String
+  categoryId String
+  category   ForumCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  locked     Boolean       @default(false)
+  pinned     Boolean       @default(false)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  posts      ForumPost[]
+}
+
+model ForumPost {
+  id        String      @id @default(cuid())
+  body      String
+  threadId  String
+  thread    ForumThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model RoleChangeLog {
+  id         String   @id @default(cuid())
+  targetId   String
+  target     User     @relation("TargetUser", fields: [targetId], references: [id], onDelete: Cascade)
+  actorId    String
+  actor      User     @relation("ActorUser", fields: [actorId], references: [id], onDelete: Cascade)
+  fromRole   Role
+  toRole     Role
+  note       String?
+  createdAt  DateTime @default(now())
+}
+
+model SiteSetting {
+  id                String  @id @default("site")
+  registrationOpen  Boolean @default(true)
+  inviteCode        String?
+}

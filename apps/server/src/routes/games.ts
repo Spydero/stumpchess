@@ -1,0 +1,116 @@
+import { Router } from "express";
+import { prisma } from "@chess/db";
+import { Chess } from "chess.js";
+import { TIME_CONTROLS, hasVipAccess, type Role } from "@chess/shared";
+import { requireUser, type AuthedRequest } from "../middleware";
+import { param } from "../params";
+
+export function createGamesRouter() {
+  const router = Router();
+
+  router.get("/recent", async (_req, res) => {
+    const games = await prisma.game.findMany({
+      where: { status: "FINISHED" },
+      orderBy: { endedAt: "desc" },
+      take: 20,
+      include: {
+        white: { select: { username: true, role: true, image: true } },
+        black: { select: { username: true, role: true, image: true } },
+      },
+    });
+    res.json(games);
+  });
+
+  router.get("/:id", async (req, res) => {
+    const game = await prisma.game.findUnique({
+      where: { id: param(req, "id") },
+      include: {
+        white: { select: { id: true, username: true, role: true, image: true } },
+        black: { select: { id: true, username: true, role: true, image: true } },
+      },
+    });
+    if (!game) return res.status(404).json({ error: "Not found" });
+    res.json(game);
+  });
+
+  router.post("/bot", requireUser, async (req: AuthedRequest, res) => {
+    const level = Math.min(20, Math.max(1, Number(req.body?.level ?? 5)));
+    const color = req.body?.color === "b" ? "b" : "w";
+    const tc = TIME_CONTROLS[1];
+    const game = await prisma.game.create({
+      data: {
+        status: "ACTIVE",
+        timeControl: tc.id,
+        initialMs: tc.initialMs,
+        incrementMs: 0,
+        whiteId: color === "w" ? req.user!.id : null,
+        blackId: color === "b" ? req.user!.id : null,
+        isBot: true,
+        botLevel: level,
+        startedAt: new Date(),
+      },
+    });
+    res.status(201).json(game);
+  });
+
+  router.post("/:id/result", requireUser, async (req: AuthedRequest, res) => {
+    const game = await prisma.game.findUnique({ where: { id: param(req, "id") } });
+    if (!game) return res.status(404).json({ error: "Not found" });
+    if (game.status === "FINISHED") return res.json(game);
+    if (req.user!.id !== game.whiteId && req.user!.id !== game.blackId && !game.isBot) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const { pgn, result, fen } = req.body as { pgn?: string; result?: string; fen?: string };
+    if (!result || !["1-0", "0-1", "1/2-1/2"].includes(result)) {
+      return res.status(400).json({ error: "Invalid result" });
+    }
+
+    try {
+      const chess = new Chess();
+      if (pgn) chess.loadPgn(pgn);
+      else if (fen) chess.load(fen);
+    } catch {
+      return res.status(400).json({ error: "Invalid PGN/FEN" });
+    }
+
+    let winnerId: string | null = null;
+    if (result === "1-0") winnerId = game.whiteId;
+    if (result === "0-1") winnerId = game.blackId;
+
+    const updated = await prisma.game.update({
+      where: { id: game.id },
+      data: {
+        status: "FINISHED",
+        result,
+        pgn: pgn ?? game.pgn,
+        fen: fen ?? game.fen,
+        winnerId: winnerId ?? undefined,
+        endedAt: new Date(),
+      },
+    });
+
+    if (!game.isBot) {
+      if (winnerId) {
+        await prisma.user.update({ where: { id: winnerId }, data: { wins: { increment: 1 } } });
+        const loserId = winnerId === game.whiteId ? game.blackId : game.whiteId;
+        if (loserId) await prisma.user.update({ where: { id: loserId }, data: { losses: { increment: 1 } } });
+      } else {
+        if (game.whiteId) await prisma.user.update({ where: { id: game.whiteId }, data: { draws: { increment: 1 } } });
+        if (game.blackId) await prisma.user.update({ where: { id: game.blackId }, data: { draws: { increment: 1 } } });
+      }
+    }
+
+    res.json(updated);
+  });
+
+  router.post("/analyze/check", requireUser, async (req: AuthedRequest, res) => {
+    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const vip = hasVipAccess(user.role as Role, user.vipExpiresAt);
+    if (!vip) return res.status(403).json({ error: "VIP required", vip: false });
+    res.json({ vip: true });
+  });
+
+  return router;
+}

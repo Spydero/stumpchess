@@ -1,0 +1,33 @@
+{
+  "name": "@chess/db",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "generate": "prisma generate",
+    "push": "prisma db push",
+    "seed": "tsx prisma/seed.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@chess/shared": "workspace:*",
+    "@prisma/client": "^6.1.0",
+    "bcryptjs": "^2.4.3",
+    "better-auth": "^1.2.5",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^26.6.5",
+    "prisma": "^6.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
