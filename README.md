@@ -63,13 +63,24 @@ See [`docs/screenshots/`](docs/screenshots/):
 2. Open http://localhost:3000/login
 3. Email: `jojo@local.dev` · Password: `OwnerChangeMe123!` · Username: `jOjo`
 
-If the account does not exist yet (fresh DB), with the web app running:
+`pnpm db:seed` creates the Owner **in the database** (User + credential password hash). No web signup required.
+
+```bash
+pnpm db:ensure-owner                 # create / promote Owner
+OWNER_RESET_PASSWORD=1 pnpm db:seed  # or: pnpm db:reset-owner-password
+```
+
+Promote an existing account to Owner with SQL only (role; does not set password):
+
+```bash
+psql "$DATABASE_URL" -f scripts/promote-owner.sql
+```
+
+Optional web bootstrap (signup API + seed) if you prefer:
 
 ```bash
 ./scripts/bootstrap-owner.sh
 ```
-
-Then log in with the same credentials.
 
 ## Google link (optional)
 

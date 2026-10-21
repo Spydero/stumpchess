@@ -9,6 +9,8 @@
     "db:generate": "pnpm --filter @chess/db generate",
     "db:push": "pnpm --filter @chess/db push",
     "db:seed": "pnpm --filter @chess/db seed",
+    "db:ensure-owner": "pnpm --filter @chess/db seed",
+    "db:reset-owner-password": "OWNER_RESET_PASSWORD=1 pnpm --filter @chess/db seed",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "postinstall": "pnpm db:generate"
