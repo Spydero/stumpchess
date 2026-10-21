@@ -16,13 +16,13 @@ export const CLASS_META: Record<
 > = {
   Brilliant: { color: "#1baca6", symbol: "!!", title: "Brilliant" },
   Great: { color: "#5c8a3c", symbol: "!", title: "Great move" },
-  Best: { color: "#96bc4b", symbol: "★", title: "Best move" },
-  Excellent: { color: "#96bc4b", symbol: "", title: "Excellent" },
-  Good: { color: "#96bc4b", symbol: "", title: "Good" },
-  Book: { color: "#a88865", symbol: "", title: "Book" },
+  Best: { color: "#96bc4b", symbol: "★", title: "Best" },
+  Excellent: { color: "#96bc4b", symbol: "✓", title: "Excellent" },
+  Good: { color: "#81b64c", symbol: "✓", title: "Good" },
+  Book: { color: "#a88865", symbol: "≡", title: "Book" },
   Inaccuracy: { color: "#f7c631", symbol: "?!", title: "Inaccuracy" },
   Mistake: { color: "#e6912c", symbol: "?", title: "Mistake" },
-  Miss: { color: "#e6912c", symbol: "?", title: "Miss" },
+  Miss: { color: "#e6912c", symbol: "✕", title: "Miss" },
   Blunder: { color: "#ca3431", symbol: "??", title: "Blunder" },
 };
 

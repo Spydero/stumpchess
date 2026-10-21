@@ -148,13 +148,14 @@ export function createStockfish() {
   worker.postMessage("isready");
 
   return {
-    async configureAnalysis() {
+    async configureAnalysis(multipv = 2) {
       await waitReady();
       worker.postMessage("setoption name Skill Level value 20");
       worker.postMessage("setoption name UCI_LimitStrength value false");
-      worker.postMessage("setoption name MultiPV value 2");
-      worker.postMessage("setoption name Threads value 1");
-      worker.postMessage("setoption name Hash value 64");
+      worker.postMessage(`setoption name MultiPV value ${multipv}`);
+      // WASM builds usually use 1–4 threads well; more Hash helps deeper searches reuse work
+      worker.postMessage("setoption name Threads value 4");
+      worker.postMessage("setoption name Hash value 192");
       await pingReady();
     },
     async configure(skill: number, elo: number) {
@@ -195,23 +196,21 @@ export function createStockfish() {
       searching = true;
 
       const depth = opts.depth ?? 18;
-      // Cap wall-clock so UI never freezes on deep searches
+      // Prefer reaching depth; keep a modest wall-clock so the UI stays snappy
       const movetime =
         opts.movetime ??
-        Math.min(12000, Math.max(1200, depth * 280));
+        Math.min(3500, Math.max(400, 200 + depth * 45));
 
       return new Promise((resolve) => {
         resolver = resolve;
         searchTimer = setTimeout(() => {
-          // Force finish with whatever we have
           worker.postMessage("stop");
           setTimeout(() => {
             if (resolver) finishSearch(buildInfo());
-          }, 200);
-        }, movetime + 2500);
+          }, 150);
+        }, movetime + 1500);
 
         worker.postMessage(`position fen ${fen}`);
-        // depth + movetime: engine returns when either is hit
         worker.postMessage(`go depth ${depth} movetime ${Math.round(movetime)}`);
       });
     },

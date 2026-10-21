@@ -4,15 +4,38 @@ import { Chess } from "chess.js";
 import { TIME_CONTROLS, hasVipAccess, type Role } from "@chess/shared";
 import { requireUser, type AuthedRequest } from "../middleware";
 import { param } from "../params";
+import { purgeExpiredGames } from "../purge";
 
 export function createGamesRouter() {
   const router = Router();
 
   router.get("/recent", async (_req, res) => {
+    await purgeExpiredGames();
     const games = await prisma.game.findMany({
       where: { status: "FINISHED" },
       orderBy: { endedAt: "desc" },
-      take: 20,
+      take: 30,
+      include: {
+        white: { select: { username: true, role: true, image: true } },
+        black: { select: { username: true, role: true, image: true } },
+      },
+    });
+    res.json(games);
+  });
+
+  /** Current user's games from the last 30 days (auto-purged after that). */
+  router.get("/mine", requireUser, async (req: AuthedRequest, res) => {
+    await purgeExpiredGames();
+    const uid = req.user!.id;
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const games = await prisma.game.findMany({
+      where: {
+        status: "FINISHED",
+        OR: [{ whiteId: uid }, { blackId: uid }],
+        endedAt: { gte: cutoff },
+      },
+      orderBy: { endedAt: "desc" },
+      take: 100,
       include: {
         white: { select: { username: true, role: true, image: true } },
         black: { select: { username: true, role: true, image: true } },

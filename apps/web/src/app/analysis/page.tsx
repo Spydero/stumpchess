@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Chess, type Square } from "chess.js";
 import { Chessboard } from "react-chessboard";
 import type { Arrow } from "react-chessboard/dist/chessboard/types";
@@ -14,15 +15,21 @@ import {
   uciToMove,
   type EngineInfo,
 } from "@/lib/stockfish";
-import { classifyMove, type ClassLabel } from "@/lib/classify";
+import { CLASS_META, classifyMove, type ClassLabel } from "@/lib/classify";
 import { userHasVip } from "@/lib/roles";
 import { EvalBar } from "@/components/EvalBar";
 import { MoveBadge } from "@/components/MoveBadge";
+import {
+  classificationTint,
+  useClassificationSquare,
+} from "@/components/ClassificationMarker";
 
 type AnalyzedMove = {
   san: string;
   fenBefore: string;
   fenAfter: string;
+  from: Square;
+  to: Square;
   classification: ClassLabel;
   bestMove?: string;
   bestSan?: string;
@@ -33,7 +40,7 @@ type AnalyzedMove = {
   ply: number;
 };
 
-const DEPTH_OPTIONS = [24, 26, 28, 30] as const;
+const DEPTH_OPTIONS = [18, 20, 22, 24, 26, 28, 30] as const;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -93,7 +100,8 @@ function parsePgnMoves(raw: string) {
   return { history };
 }
 
-export default function AnalysisPage() {
+function AnalysisPageInner() {
+  const searchParams = useSearchParams();
   const { data, isPending } = useSession();
   const user = data?.user as { id: string; role?: string; vipExpiresAt?: string | null } | undefined;
   const [allowed, setAllowed] = useState<boolean | null>(null);
@@ -104,7 +112,7 @@ export default function AnalysisPage() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const [liveDepth, setLiveDepth] = useState(0);
-  const [depth, setDepth] = useState<(typeof DEPTH_OPTIONS)[number]>(26);
+  const [depth, setDepth] = useState<(typeof DEPTH_OPTIONS)[number]>(22);
   const [playing, setPlaying] = useState(false);
   const [autoReview, setAutoReview] = useState(false);
   const engineRef = useRef<ReturnType<typeof createStockfish> | null>(null);
@@ -113,6 +121,8 @@ export default function AnalysisPage() {
   const playingRef = useRef(false);
   const movesRef = useRef<AnalyzedMove[]>([]);
   const idxRef = useRef(-1);
+  const busyRef = useRef(false);
+  const boardFocusRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     movesRef.current = moves;
@@ -120,6 +130,9 @@ export default function AnalysisPage() {
   useEffect(() => {
     idxRef.current = idx;
   }, [idx]);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
 
   useEffect(() => {
     if (!user) {
@@ -146,6 +159,18 @@ export default function AnalysisPage() {
       /* ignore */
     }
   }, []);
+
+  // Load PGN from a saved game (?gameId=...)
+  useEffect(() => {
+    const gameId = searchParams.get("gameId");
+    if (!gameId || !user) return;
+    apiFetch(`/api/games/${gameId}`)
+      .then((g: { pgn?: string }) => {
+        if (g.pgn?.trim()) setPgn(g.pgn);
+        else setProgress("That game has no saved moves to analyze.");
+      })
+      .catch(() => setProgress("Could not load that game."));
+  }, [searchParams, user]);
 
   useEffect(() => () => {
     cancelRef.current = true;
@@ -206,13 +231,21 @@ export default function AnalysisPage() {
     setProgress("Starting Stockfish…");
     try {
       if (!engineRef.current) engineRef.current = createStockfish();
-      await engineRef.current.configureAnalysis();
+      await engineRef.current.configureAnalysis(2);
 
       const chess = new Chess();
       const analyzed: AnalyzedMove[] = [];
-      // Wall-clock per search so deep depth still progresses
-      const beforeTime = Math.min(10000, Math.max(1500, depth * 250));
-      const afterTime = Math.min(5000, Math.max(800, depth * 120));
+      // One search per ply (reuse as next "before"). Cap wall-clock so deep depth stays usable.
+      const movetime = Math.min(2200, Math.max(300, 120 + depth * 55));
+
+      setProgress("Analyzing starting position…");
+      let infoBefore: EngineInfo = await engineRef.current.analyze(chess.fen(), {
+        depth,
+        movetime,
+        onUpdate: (info) => {
+          if (info.depth) setLiveDepth(info.depth);
+        },
+      });
 
       for (let i = 0; i < history.length; i++) {
         if (cancelRef.current) break;
@@ -220,17 +253,8 @@ export default function AnalysisPage() {
         const fenBefore = chess.fen();
         const turn = chess.turn();
 
-        const infoBefore: EngineInfo = await engineRef.current.analyze(fenBefore, {
-          depth,
-          movetime: beforeTime,
-          onUpdate: (info) => {
-            if (info.depth) setLiveDepth(info.depth);
-          },
-        });
-
         const whiteEvalBefore = toWhiteEval(turn, infoBefore.scoreCp, infoBefore.mate);
-        const moverBest =
-          turn === "w" ? whiteEvalBefore : -whiteEvalBefore;
+        const moverBest = turn === "w" ? whiteEvalBefore : -whiteEvalBefore;
         const moverSecondRaw = toWhiteEval(turn, infoBefore.secondScoreCp, infoBefore.secondMate);
         const moverSecond = turn === "w" ? moverSecondRaw : -moverSecondRaw;
         const gapForMover = Math.max(0, moverBest - moverSecond);
@@ -242,9 +266,10 @@ export default function AnalysisPage() {
 
         chess.move(mv);
 
-        const infoAfter = await engineRef.current.analyze(chess.fen(), {
-          depth: Math.min(depth, 22),
-          movetime: afterTime,
+        // Next position search — also becomes "before" for the following move
+        const infoAfter: EngineInfo = await engineRef.current.analyze(chess.fen(), {
+          depth,
+          movetime,
           onUpdate: (info) => {
             if (info.depth) setLiveDepth(info.depth);
           },
@@ -270,7 +295,7 @@ export default function AnalysisPage() {
         const missedWin = wasWinning && nowBad && loss >= 80;
 
         const classification = classifyMove({
-          cpl: loss,
+          cpl: isBest ? Math.min(loss, 8) : loss,
           isBest,
           bestGap: gapForMover,
           gained,
@@ -283,16 +308,19 @@ export default function AnalysisPage() {
           san: mv.san,
           fenBefore,
           fenAfter: chess.fen(),
+          from: mv.from as Square,
+          to: mv.to as Square,
           classification,
           bestMove: bestUci,
           bestSan: bestSanFromUci(fenBefore, bestUci),
-          cpl: Math.round(loss),
+          cpl: Math.round(isBest ? Math.min(loss, 8) : loss),
           evalAfter: whiteEvalAfter,
           evalBefore: whiteEvalBefore,
           color: mv.color,
           ply: i + 1,
         });
 
+        infoBefore = infoAfter;
         setMoves([...analyzed]);
         movesRef.current = analyzed;
         setIdx(i);
@@ -305,10 +333,12 @@ export default function AnalysisPage() {
 
       if (!cancelRef.current && analyzed.length) {
         setProgress("Playing review…");
+        boardFocusRef.current?.focus({ preventScroll: true });
         await runAutoReview(analyzed.length);
       } else {
         setProgress(analyzed.length ? "Stopped. You can step through finished moves." : "Stopped.");
         setIdx(-1);
+        boardFocusRef.current?.focus({ preventScroll: true });
       }
     } catch (e) {
       setProgress(e instanceof Error ? e.message : "Failed to analyze PGN");
@@ -324,20 +354,23 @@ export default function AnalysisPage() {
     setProgress("Stopped. Use Forward to step through any moves already analyzed.");
   }
 
-  function go(delta: number) {
-    stopPlayback();
-    const list = movesRef.current;
-    if (!list.length) return;
-    setIdx((i) => {
-      const next = Math.max(-1, Math.min(list.length - 1, i + delta));
-      idxRef.current = next;
-      return next;
-    });
-  }
+  const go = useCallback(
+    (delta: number) => {
+      stopPlayback();
+      const list = movesRef.current;
+      if (!list.length || busyRef.current) return;
+      setIdx((i) => {
+        const next = Math.max(-1, Math.min(list.length - 1, i + delta));
+        idxRef.current = next;
+        return next;
+      });
+    },
+    [stopPlayback]
+  );
 
-  function togglePlay() {
+  const togglePlay = useCallback(() => {
     const list = movesRef.current;
-    if (!list.length || busy) return;
+    if (!list.length || busyRef.current) return;
     if (playingRef.current) {
       stopPlayback();
       return;
@@ -363,7 +396,42 @@ export default function AnalysisPage() {
     } else {
       playTimer.current = setTimeout(step, 50);
     }
-  }
+  }, [stopPlayback]);
+
+  // ← / → step through the review; ignore when typing in inputs
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if ((e.target as HTMLElement | null)?.isContentEditable) return;
+      if (busyRef.current) return;
+      if (!movesRef.current.length) return;
+
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        go(-1);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        go(1);
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        stopPlayback();
+        setIdx(-1);
+        idxRef.current = -1;
+      } else if (e.key === "End") {
+        e.preventDefault();
+        stopPlayback();
+        const last = movesRef.current.length - 1;
+        setIdx(last);
+        idxRef.current = last;
+      } else if (e.key === " ") {
+        e.preventDefault();
+        togglePlay();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [go, togglePlay, stopPlayback]);
 
   const position = useMemo(() => {
     if (!moves.length || idx < 0) return "start";
@@ -375,34 +443,31 @@ export default function AnalysisPage() {
 
   const arrows = useMemo((): Arrow[] => {
     if (!current?.bestMove) return [];
-    const m = uciToMove(current.bestMove);
-    if (!m) return [];
-    const color =
+    // Don't draw arrow when the played move was already best/great/brilliant
+    if (
       current.classification === "Best" ||
       current.classification === "Brilliant" ||
-      current.classification === "Great"
-        ? "#96bc4b"
-        : "#eb9c3d";
-    return [[m.from as Square, m.to as Square, color]];
+      current.classification === "Great" ||
+      current.classification === "Excellent"
+    ) {
+      return [];
+    }
+    const m = uciToMove(current.bestMove);
+    if (!m) return [];
+    return [[m.from as Square, m.to as Square, CLASS_META.Best.color]];
   }, [current]);
 
   const lastMoveSquares = useMemo(() => {
     if (!current) return {};
-    try {
-      const c = new Chess(current.fenBefore);
-      const history = c.history({ verbose: true });
-      // reconstruct last move from fenBefore + san
-      const mv = c.move(current.san);
-      if (!mv) return {};
-      void history;
-      return {
-        [mv.from]: { background: "rgba(155, 199, 0, 0.35)" },
-        [mv.to]: { background: "rgba(155, 199, 0, 0.55)" },
-      };
-    } catch {
-      return {};
-    }
+    const tintSoft = classificationTint(current.classification, 0.32);
+    const tintStrong = classificationTint(current.classification, 0.52);
+    return {
+      [current.from]: { background: tintSoft },
+      [current.to]: { background: tintStrong },
+    };
   }, [current]);
+
+  const customSquare = useClassificationSquare(current?.to, current?.classification);
 
   if (isPending) return <p className="pulse-soft ui muted">Loading…</p>;
   if (!user) {
@@ -456,7 +521,13 @@ export default function AnalysisPage() {
 
         <div className="flex gap-3 items-stretch max-w-[min(100%,560px)]">
           <EvalBar whiteCp={evalCp} />
-          <div className="flex-1 min-w-0">
+          <div
+            ref={boardFocusRef}
+            tabIndex={0}
+            className="flex-1 min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-sm"
+            onClick={() => boardFocusRef.current?.focus()}
+            aria-label="Analysis board. Use left and right arrow keys to step through moves."
+          >
             <Chessboard
               position={position}
               arePiecesDraggable={false}
@@ -464,6 +535,7 @@ export default function AnalysisPage() {
               customLightSquareStyle={{ backgroundColor: "var(--board-light)" }}
               customArrows={arrows}
               customSquareStyles={lastMoveSquares}
+              customSquare={customSquare}
             />
           </div>
         </div>
@@ -471,11 +543,16 @@ export default function AnalysisPage() {
         <div className="mt-4 panel p-3 sm:p-4 max-w-[min(100%,560px)]">
           {current ? (
             <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <MoveBadge label={current.classification} large />
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                 <span className="ui text-lg font-semibold">
                   {Math.ceil(current.ply / 2)}
                   {current.color === "w" ? "." : "..."} {current.san}
+                </span>
+                <span
+                  className="ui text-sm font-semibold"
+                  style={{ color: CLASS_META[current.classification].color }}
+                >
+                  {CLASS_META[current.classification].title}
                 </span>
                 <span className="ui text-sm muted tabular-nums">
                   {formatEval(current.evalAfter)}
@@ -484,22 +561,26 @@ export default function AnalysisPage() {
               {current.classification !== "Best" &&
                 current.classification !== "Brilliant" &&
                 current.classification !== "Great" &&
+                current.classification !== "Excellent" &&
                 current.bestSan && (
                   <p className="ui text-sm m-0">
                     <span className="muted">Best was </span>
-                    <strong style={{ color: "#96bc4b" }}>{current.bestSan}</strong>
+                    <strong style={{ color: CLASS_META.Best.color }}>{current.bestSan}</strong>
                     <span className="muted"> ({current.cpl} cp loss)</span>
                   </p>
                 )}
               {(current.classification === "Best" ||
                 current.classification === "Brilliant" ||
-                current.classification === "Great") && (
+                current.classification === "Great" ||
+                current.classification === "Excellent") && (
                 <p className="ui text-sm muted m-0">Engine agrees with this move.</p>
               )}
             </div>
           ) : (
             <p className="ui text-sm muted m-0">
-              {moves.length ? "Starting position" : "Paste a PGN and run deep analysis."}
+              {moves.length
+                ? "Starting position · ← → to step through"
+                : "Paste a PGN and run deep analysis."}
             </p>
           )}
 
@@ -539,6 +620,7 @@ export default function AnalysisPage() {
               >
                 End
               </button>
+              <span className="ui text-xs muted self-center ml-1">← → keys · Space play</span>
             </div>
           )}
         </div>
@@ -562,7 +644,8 @@ export default function AnalysisPage() {
           >
             {DEPTH_OPTIONS.map((d) => (
               <option key={d} value={d}>
-                Depth {d} {d >= 28 ? "(slow, strongest)" : d >= 26 ? "(recommended)" : ""}
+                Depth {d}
+                {d <= 20 ? " (fast)" : d <= 22 ? " (recommended)" : d <= 26 ? " (deeper)" : " (slow)"}
               </option>
             ))}
           </select>
@@ -622,9 +705,15 @@ export default function AnalysisPage() {
                   disabled={row.wi === undefined || busy}
                 >
                   {row.w ? (
-                    <span className="inline-flex items-center gap-1 flex-wrap">
+                    <span>
                       {row.w.san}
-                      <MoveBadge label={row.w.classification} />
+                      <span
+                        className="ml-0.5 font-semibold"
+                        style={{ color: CLASS_META[row.w.classification].color }}
+                        title={CLASS_META[row.w.classification].title}
+                      >
+                        {CLASS_META[row.w.classification].symbol}
+                      </span>
                     </span>
                   ) : (
                     "…"
@@ -644,9 +733,15 @@ export default function AnalysisPage() {
                   disabled={row.bi === undefined || busy}
                 >
                   {row.b ? (
-                    <span className="inline-flex items-center gap-1 flex-wrap">
+                    <span>
                       {row.b.san}
-                      <MoveBadge label={row.b.classification} />
+                      <span
+                        className="ml-0.5 font-semibold"
+                        style={{ color: CLASS_META[row.b.classification].color }}
+                        title={CLASS_META[row.b.classification].title}
+                      >
+                        {CLASS_META[row.b.classification].symbol}
+                      </span>
                     </span>
                   ) : (
                     ""
@@ -657,12 +752,36 @@ export default function AnalysisPage() {
           </div>
         )}
 
-        <div className="panel p-3 ui text-xs muted space-y-1">
+        <div className="panel p-3 ui text-xs space-y-2">
           <p className="m-0 font-semibold text-[var(--ink)]">Classifications</p>
-          <p className="m-0">Brilliant !! · Great ! · Best · Excellent · Good · Book</p>
-          <p className="m-0">Inaccuracy ?! · Mistake ? · Miss · Blunder ??</p>
+          <div className="flex flex-wrap gap-1.5">
+            {(
+              [
+                "Brilliant",
+                "Great",
+                "Best",
+                "Excellent",
+                "Good",
+                "Book",
+                "Inaccuracy",
+                "Mistake",
+                "Miss",
+                "Blunder",
+              ] as ClassLabel[]
+            ).map((label) => (
+              <MoveBadge key={label} label={label} />
+            ))}
+          </div>
         </div>
       </aside>
     </div>
+  );
+}
+
+export default function AnalysisPage() {
+  return (
+    <Suspense fallback={<p className="ui muted">Loading analysis…</p>}>
+      <AnalysisPageInner />
+    </Suspense>
   );
 }
