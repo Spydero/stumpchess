@@ -91,9 +91,17 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
   let onInfo: ((info: EngineInfo) => void) | null = null;
   let searching = false;
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Bumps on each new analyze/stop/dispose so late bestmove can't finish the wrong search. */
+  /** Bumps on each new analyze/stop/dispose so late info/bestmove can't finish the wrong search. */
   let searchEpoch = 0;
+  /** Epoch of the `go` currently in flight (set when go is posted). */
   let activeEpoch = 0;
+  /** Resolves when the in-flight go has fully stopped (bestmove received or timeout). */
+  let stopGate: (() => void) | null = null;
+  /**
+   * Count of trailing bestmoves from halt()/stop that must be discarded.
+   * Kept even after the halt timeout so a late bestmove cannot finish a newer go.
+   */
+  let discardBestmoves = 0;
   let configured = false;
   let engineName = "stockfish-19-lite";
   let hashMb = 32;
@@ -159,17 +167,78 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
     };
   };
 
-  const finishSearch = (info: EngineInfo, epoch: number) => {
-    if (epoch !== activeEpoch) return;
+  const clearSearchTimer = () => {
     if (searchTimer) {
       clearTimeout(searchTimer);
       searchTimer = null;
     }
+  };
+
+  const releaseStopGate = () => {
+    const g = stopGate;
+    stopGate = null;
+    g?.();
+  };
+
+  const finishSearch = (info: EngineInfo) => {
+    if (discardBestmoves > 0) {
+      discardBestmoves--;
+      releaseStopGate();
+      return;
+    }
+    // halt() bumps searchEpoch above activeEpoch while a go is dying.
+    if (activeEpoch !== searchEpoch) {
+      releaseStopGate();
+      return;
+    }
+    clearSearchTimer();
     searching = false;
     const r = resolver;
     resolver = null;
     onInfo = null;
     r?.(info);
+    releaseStopGate();
+  };
+
+  /**
+   * Stop any in-flight go, drain its bestmove, then isready.
+   * Without this, a late bestmove can resolve the *next* analyze() with the previous
+   * position's eval (Practice then flips STM and tags book moves like 1.d4 as ?!).
+   */
+  const halt = async (): Promise<void> => {
+    if (!searching && !resolver) return;
+
+    searchEpoch++;
+    onInfo = null;
+    clearSearchTimer();
+
+    if (resolver) {
+      const r = resolver;
+      resolver = null;
+      r(buildInfo());
+    }
+    searching = false;
+
+    discardBestmoves++;
+    worker.postMessage("stop");
+
+    await new Promise<void>((resolve) => {
+      const prev = stopGate;
+      stopGate = () => {
+        prev?.();
+        resolve();
+      };
+      setTimeout(() => {
+        if (stopGate) {
+          // Worker never answered — stop expecting that bestmove
+          if (discardBestmoves > 0) discardBestmoves--;
+          releaseStopGate();
+        }
+      }, 400);
+    });
+
+    // Sync so the next position/go isn't racing leftover output
+    await pingReady();
   };
 
   worker.onmessage = (e: MessageEvent) => {
@@ -186,6 +255,8 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
 
       if (text.startsWith("info ") && text.includes(" score ") && text.includes(" pv ")) {
         if (/\blowerbound\b|\bupperbound\b/.test(text)) continue;
+        // Ignore info from halted / superseded searches
+        if (activeEpoch !== searchEpoch || !searching) continue;
         const multipv = Number(/ multipv (\d+)/.exec(text)?.[1] || "1");
         const depthStr = / depth (\d+)/.exec(text)?.[1];
         const mateStr = / score mate (-?\d+)/.exec(text)?.[1];
@@ -202,8 +273,7 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
           scoreCp: cpStr !== undefined ? Number(cpStr) : mateStr !== undefined ? undefined : prev.scoreCp,
           pv,
         };
-        // Only materialize EngineInfo when a listener cares (avoids main-thread churn)
-        if (onInfo && activeEpoch === searchEpoch) {
+        if (onInfo) {
           const info = buildInfo();
           latest = { ...info, depth: d ?? info.depth };
           onInfo(info);
@@ -214,8 +284,6 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
       }
 
       if (text.startsWith("bestmove ")) {
-        if (!resolver && !searching) continue;
-        const epoch = activeEpoch;
         const built = buildInfo();
         const best = text.split(/\s+/)[1];
         const info = {
@@ -223,14 +291,14 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
           bestMove: !best || best === "(none)" ? built.bestMove : best,
         };
         latest = info;
-        finishSearch(info, epoch);
+        finishSearch(info);
       }
     }
   };
 
   worker.onerror = (err) => {
     console.error("Stockfish worker error", err);
-    finishSearch(buildInfo(), activeEpoch);
+    finishSearch(buildInfo());
   };
 
   worker.postMessage("uci");
@@ -327,24 +395,9 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
       } = {}
     ): Promise<EngineInfo> {
       await ensureConfigured();
+      await halt();
 
       const epoch = ++searchEpoch;
-      if (searching) {
-        worker.postMessage("stop");
-        // Resolve the previous waiter so callers don't hang
-        if (resolver) {
-          const prev = resolver;
-          resolver = null;
-          onInfo = null;
-          searching = false;
-          prev(buildInfo());
-        }
-        await new Promise((r) => setTimeout(r, 30));
-      }
-      if (epoch !== searchEpoch) {
-        return { pvs: [] };
-      }
-
       latest = { pvs: [] };
       lines = {};
       onInfo = opts.onUpdate || null;
@@ -360,15 +413,19 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
 
       return new Promise((resolve) => {
         if (epoch !== searchEpoch) {
+          searching = false;
           resolve({ pvs: [] });
           return;
         }
         resolver = resolve;
         searchTimer = setTimeout(() => {
+          // Soft-stop; bestmove will finishSearch. Fallback if worker stalls.
           worker.postMessage("stop");
           setTimeout(() => {
-            if (resolver && activeEpoch === epoch) finishSearch(buildInfo(), epoch);
-          }, 100);
+            if (resolver && activeEpoch === epoch && activeEpoch === searchEpoch) {
+              finishSearch(buildInfo());
+            }
+          }, 120);
         }, safetyMs);
 
         worker.postMessage(`position fen ${fen}`);
@@ -384,24 +441,12 @@ export function createStockfish(opts?: { forceSingle?: boolean }) {
       return info.bestMove;
     },
     stop() {
-      searchEpoch++;
-      worker.postMessage("stop");
-      if (resolver) {
-        const r = resolver;
-        resolver = null;
-        onInfo = null;
-        searching = false;
-        if (searchTimer) {
-          clearTimeout(searchTimer);
-          searchTimer = null;
-        }
-        r(buildInfo());
-      }
+      void halt();
     },
     dispose() {
       searchEpoch++;
-      if (searchTimer) clearTimeout(searchTimer);
-      searchTimer = null;
+      clearSearchTimer();
+      stopGate = null;
       if (resolver) {
         const r = resolver;
         resolver = null;

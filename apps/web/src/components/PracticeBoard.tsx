@@ -108,6 +108,18 @@ type LastFeedback = {
 type PendingPromo = { from: string; to: string };
 type Premove = { from: string; to: string };
 
+function isUciLegal(fen: string, uci?: string): boolean {
+  if (!uci) return false;
+  const m = uciToMove(uci);
+  if (!m) return false;
+  try {
+    const c = new Chess(fen);
+    return Boolean(c.move({ from: m.from, to: m.to, promotion: m.promotion || "q" }));
+  } catch {
+    return false;
+  }
+}
+
 function bestSanFromUci(fen: string, uci?: string) {
   if (!uci) return undefined;
   const m = uciToMove(uci);
@@ -185,12 +197,20 @@ export function PracticeBoard({
   const coachRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runCoachRef = useRef<(() => Promise<void>) | null>(null);
   const coachInfoRef = useRef<EngineInfo | null>(null);
+  /** FEN the current coachInfo was computed for — refuse to draw/eval if it drifts. */
+  const coachFenRef = useRef<string | null>(null);
   const liveRef = useRef(liveAnalysis);
   const depthRef = useRef(15);
   const vsBot = mode === "bot" || mode === "coach";
   const coachOn = mode === "coach" || liveAnalysis;
   const skipCoachFenRef = useRef<string | null>(null);
   const busyRef = useRef(false);
+
+  const publishCoach = useCallback((info: EngineInfo | null, forFen: string | null) => {
+    coachInfoRef.current = info;
+    coachFenRef.current = info && forFen ? forFen : null;
+    startTransition(() => setCoachInfo(info));
+  }, []);
   const whiteTime = useRef(300_000);
   const blackTime = useRef(300_000);
   const gameStatusRef = useRef<"ACTIVE" | "FINISHED">("ACTIVE");
@@ -224,9 +244,6 @@ export function PracticeBoard({
   const recommendedDepth = recommendedCoachDepth(tc.initialMs);
   const activePreset = COACH_PRESETS.find((s) => s.depth === coachDepth) || null;
 
-  useEffect(() => {
-    coachInfoRef.current = coachInfo;
-  }, [coachInfo]);
   useEffect(() => {
     liveRef.current = mode === "coach" ? true : liveAnalysis;
   }, [liveAnalysis, mode]);
@@ -413,7 +430,11 @@ export function PracticeBoard({
       try {
         const engine = await ensureCoach();
         let before = opts.beforeHint;
-        if (!before || !depthReliable(before, depth)) {
+        const beforeOk =
+          before &&
+          depthReliable(before, depth) &&
+          isUciLegal(opts.fenBefore, before.bestMove || before.pvs[0]?.uci);
+        if (!beforeOk) {
           before = await engine.analyze(opts.fenBefore, { depth });
         }
         if (gen !== judgeGen.current) return;
@@ -421,11 +442,25 @@ export function PracticeBoard({
         const after = await engine.analyze(opts.fenAfter, { depth });
         if (gen !== judgeGen.current) return;
 
-        skipCoachFenRef.current = opts.fenAfter;
-        coachInfoRef.current = after;
-        startTransition(() => setCoachInfo(after));
+        // Stale/wrong-position results: bestmove must be legal in the fen we asked for.
+        if (!isUciLegal(opts.fenAfter, after.bestMove || after.pvs[0]?.uci)) {
+          setLabelPending(true);
+          setAnnotated((list) => {
+            const next = [...list];
+            if (next[opts.moveIndex]) next[opts.moveIndex] = { ...next[opts.moveIndex], judging: false };
+            return next;
+          });
+          skipCoachFenRef.current = null;
+          return;
+        }
 
-        const reliable = depthReliable(before, depth) && depthReliable(after, depth);
+        skipCoachFenRef.current = opts.fenAfter;
+        publishCoach(after, opts.fenAfter);
+
+        const reliable =
+          depthReliable(before, depth) &&
+          depthReliable(after, depth) &&
+          isUciLegal(opts.fenBefore, before?.bestMove || before?.pvs[0]?.uci);
         if (!reliable) {
           setLabelPending(true);
           setAnnotated((list) => {
@@ -520,13 +555,12 @@ export function PracticeBoard({
         }
       }
     },
-    [ensureCoach]
+    [ensureCoach, publishCoach]
   );
 
   const runCoach = useCallback(async () => {
     if (!liveRef.current) {
-      setCoachInfo(null);
-      coachInfoRef.current = null;
+      publishCoach(null, null);
       return;
     }
     if (busyRef.current) {
@@ -545,7 +579,7 @@ export function PracticeBoard({
       return;
     }
     if (chessRef.current.isGameOver() || gameStatusRef.current === "FINISHED") {
-      setCoachInfo(null);
+      publishCoach(null, null);
       return;
     }
 
@@ -560,6 +594,8 @@ export function PracticeBoard({
         onUpdate: (partial) => {
           if (gen !== coachGen.current) return;
           if (!partial.bestMove && !partial.pvs?.length) return;
+          // Drop updates whose PV is illegal for this fen (stale search bleed-through)
+          if (partial.bestMove && !isUciLegal(fenNow, partial.bestMove)) return;
           const arrowSig = (partial.pvs || [])
             .slice(0, 4)
             .map((p) => p.uci)
@@ -571,18 +607,17 @@ export function PracticeBoard({
           if (!arrowsChanged && !depthMilestone) return;
           lastArrowSig = arrowSig;
           lastUiDepth = d;
-          coachInfoRef.current = partial;
-          startTransition(() => setCoachInfo(partial));
+          publishCoach(partial, fenNow);
         },
       });
       if (gen === coachGen.current) {
-        coachInfoRef.current = info;
-        startTransition(() => setCoachInfo(info));
+        if (info.bestMove && !isUciLegal(fenNow, info.bestMove)) return;
+        publishCoach(info, fenNow);
       }
     } catch {
       /* ignore */
     }
-  }, [ensureCoach]);
+  }, [ensureCoach, publishCoach]);
 
   useEffect(() => {
     runCoachRef.current = runCoach;
@@ -608,7 +643,8 @@ export function PracticeBoard({
       try {
         const fenBefore = chess.fen();
         const color = chess.turn();
-        const beforeHint = coachInfoRef.current;
+        const beforeHint =
+          coachFenRef.current === fenBefore ? coachInfoRef.current : null;
         const move = chess.move({ from, to, promotion: promotion || "q" });
         if (!move) return false;
 
@@ -808,24 +844,22 @@ export function PracticeBoard({
     coachGen.current++;
     coachEngine.current?.stop();
     setLastFeedback(null);
-    setCoachInfo(null);
-    coachInfoRef.current = null;
+    publishCoach(null, null);
     setJudging(false);
     setLabelPending(false);
     busyRef.current = false;
     setAnnotated((list) => list.map(({ san, from, to }) => ({ san, from, to })));
-  }, [coachOn]);
+  }, [coachOn, publishCoach]);
 
   useEffect(() => {
     if (!coachOn) return;
     // Drop previous arrows immediately so they don't sit on the new position
     coachGen.current++;
     coachEngine.current?.stop();
-    setCoachInfo(null);
-    coachInfoRef.current = null;
+    publishCoach(null, null);
     const t = setTimeout(() => void runCoach(), 100);
     return () => clearTimeout(t);
-  }, [fen, coachOn, coachDepth, runCoach]);
+  }, [fen, coachOn, coachDepth, runCoach, publishCoach]);
 
   useEffect(() => {
     if (!vsBot) return;
@@ -892,8 +926,7 @@ export function PracticeBoard({
     coachEngine.current?.stop();
     chessRef.current = new Chess();
     clearSelection();
-    setCoachInfo(null);
-    coachInfoRef.current = null;
+    publishCoach(null, null);
     skipCoachFenRef.current = null;
     setAnnotated([]);
     setLastFeedback(null);
@@ -928,8 +961,7 @@ export function PracticeBoard({
     setPendingPromo(null);
     setPremove(null);
     premoveRef.current = null;
-    setCoachInfo(null);
-    coachInfoRef.current = null;
+    publishCoach(null, null);
     if (vsBot) {
       chessRef.current.undo();
       if (chessRef.current.turn() !== playerColor) chessRef.current.undo();
@@ -1081,9 +1113,11 @@ export function PracticeBoard({
     ]
   );
 
+  const coachMatchesFen = Boolean(coachInfo && coachFenRef.current === fen);
+
   /** Up to 4 arrows for near-best MultiPV lines (colors by rank). */
   const coachArrows = useMemo((): Arrow[] => {
-    if (!coachOn || !coachInfo) return [];
+    if (!coachOn || !coachInfo || !coachMatchesFen) return [];
     const lines = (coachInfo.pvs?.length
       ? coachInfo.pvs
       : coachInfo.bestMove
@@ -1109,13 +1143,15 @@ export function PracticeBoard({
       if (i > 0 && gap > MAX_GAP) continue;
       const m = uciToMove(line.uci);
       if (!m) continue;
+      // Must be legal for the board fen (guards against STM-flipped stale PVs)
+      if (!isUciLegal(fen, line.uci)) continue;
       const key = `${m.from}${m.to}`;
       if (seen.has(key)) continue;
       seen.add(key);
       out.push([m.from as Square, m.to as Square, colors[i] || colors[colors.length - 1]]);
     }
     return out;
-  }, [coachOn, coachInfo]);
+  }, [coachOn, coachInfo, coachMatchesFen, fen]);
 
   const boardMarker = useMemo((): PracticeBoardMarker => {
     if (!coachOn || !lastFeedback) return null;
@@ -1132,9 +1168,10 @@ export function PracticeBoard({
     !pendingPromo &&
     (mode === "sandbox" ? !thinking : true);
 
-  const whiteCp = coachInfo
-    ? toWhiteEval(chessRef.current.turn(), coachInfo.scoreCp, coachInfo.mate)
-    : 0;
+  const whiteCp =
+    coachInfo && coachMatchesFen
+      ? toWhiteEval(fen.split(" ")[1] as "w" | "b", coachInfo.scoreCp, coachInfo.mate)
+      : 0;
 
   const bestSans = useMemo(() => {
     if (!coachArrows.length || !coachInfo) return [] as string[];
