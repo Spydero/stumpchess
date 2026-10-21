@@ -3,9 +3,12 @@
 /** Chess.com / Lichess-style book marker for opening moves. */
 export function BookMoveBadge({
   compact,
+  large,
   title = "Book move",
 }: {
   compact?: boolean;
+  /** Bigger pill with full "Book move" label */
+  large?: boolean;
   title?: string;
 }) {
   if (compact) {
@@ -16,9 +19,12 @@ export function BookMoveBadge({
     );
   }
   return (
-    <span className="book-move-badge" title={title}>
+    <span
+      className={`book-move-badge ${large ? "book-move-badge--large" : ""}`}
+      title={title}
+    >
       <BookIcon />
-      <span>Book</span>
+      <span>{large ? "Book move" : "Book"}</span>
     </span>
   );
 }

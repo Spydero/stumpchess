@@ -13,6 +13,7 @@ import { Chess, type Square } from "chess.js";
 import { Chessboard } from "react-chessboard";
 import type { Arrow } from "react-chessboard/dist/chessboard/types";
 import { BookMoveBadge } from "@/components/BookMoveBadge";
+import { BookSquare, BookSquareProvider } from "@/components/BookSquareMarker";
 import { EvalBar } from "@/components/EvalBar";
 import {
   OPENING_ROOTS,
@@ -86,6 +87,11 @@ export function OpeningsExplorer({ isVip }: Props) {
   const maxCount = nextMoves[0]?.count ?? 1;
   const inBook = useMemo(() => isInBook(uciPath), [uciPath]);
   const lastWasBook = ply > 0 && !!history[ply - 1]?.book;
+  const bookTarget = useMemo((): Square | null => {
+    if (!lastWasBook || ply <= 0) return null;
+    const m = uciToMove(history[ply - 1].uci);
+    return m ? (m.to as Square) : null;
+  }, [lastWasBook, history, ply]);
 
   const syncToPly = useCallback((nextHist: HistMove[], nextPly: number) => {
     const f = fenAtPly(nextHist, nextPly);
@@ -375,26 +381,38 @@ export function OpeningsExplorer({ isVip }: Props) {
         <div className="flex gap-2 sm:gap-3 items-stretch">
           {analysisOn && <EvalBar whiteCp={coachInfo ? whiteCp : 0} />}
           <div className="flex-1 min-w-0 max-w-[min(100%,560px)] relative">
-            <Chessboard
-              position={fen}
-              onPieceDrop={onPieceDrop}
-              onSquareClick={onSquareClick}
-              boardOrientation={orientation}
-              animationDuration={120}
-              arePiecesDraggable={!promo}
-              customSquareStyles={squareStyles}
-              customArrows={coachArrows}
-              customBoardStyle={BOARD_STYLE}
-              customDarkSquareStyle={DARK_SQ}
-              customLightSquareStyle={LIGHT_SQ}
-            />
+            <BookSquareProvider target={bookTarget}>
+              <Chessboard
+                position={fen}
+                onPieceDrop={onPieceDrop}
+                onSquareClick={onSquareClick}
+                boardOrientation={orientation}
+                animationDuration={120}
+                arePiecesDraggable={!promo}
+                customSquareStyles={squareStyles}
+                customSquare={BookSquare}
+                customArrows={coachArrows}
+                customBoardStyle={BOARD_STYLE}
+                customDarkSquareStyle={DARK_SQ}
+                customLightSquareStyle={LIGHT_SQ}
+              />
+            </BookSquareProvider>
             {lastWasBook && (
               <div className="openings-book-float">
-                <BookMoveBadge />
+                <BookMoveBadge large />
               </div>
             )}
           </div>
         </div>
+        {lastWasBook && history[ply - 1] && (
+          <div className="openings-book-callout ui text-sm mt-2">
+            <BookMoveBadge large />
+            <span>
+              <strong>{history[ply - 1].san}</strong> is a book move
+              {opening ? ` · ${opening.eco} ${opening.name}` : ""}
+            </span>
+          </div>
+        )}
 
         {promo && (
           <div className="mt-3 panel p-3 flex flex-wrap items-center gap-2 ui text-sm">
@@ -473,15 +491,11 @@ export function OpeningsExplorer({ isVip }: Props) {
             <p className="forum-kicker mb-1">Opening</p>
             <div className="flex flex-wrap items-center gap-2">
               {opening ? (
-                <>
-                  <p className="ui text-xs font-bold tracking-wide text-[var(--accent)] m-0">
-                    {opening.eco}
-                  </p>
-                  {inBook && <BookMoveBadge compact />}
-                </>
-              ) : inBook ? (
-                <BookMoveBadge />
-              ) : (
+                <p className="ui text-xs font-bold tracking-wide text-[var(--accent)] m-0">
+                  {opening.eco}
+                </p>
+              ) : null}
+              {lastWasBook ? <BookMoveBadge large /> : inBook ? <BookMoveBadge /> : (
                 <span className="badge" style={{ color: "var(--muted)" }}>
                   Off book
                 </span>
