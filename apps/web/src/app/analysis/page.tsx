@@ -30,6 +30,7 @@ import {
   parseStoredAnalysis,
   saveLocalAnalysis,
   serializeAnalysis,
+  stashMistakesPgn,
   type StoredAnalyzedMove,
 } from "@/lib/analysis-cache";
 
@@ -805,10 +806,17 @@ function AnalysisPageInner() {
                       ? "Saved review ready."
                       : "Review ready."}
                   </p>
-                  {gameId && (
+                  {moves.length > 0 && (
                     <Link
-                      href={`/practice/mistakes?gameId=${gameId}`}
+                      href={
+                        gameId
+                          ? `/practice/mistakes?gameId=${gameId}`
+                          : "/practice/mistakes"
+                      }
                       className="btn btn-accent w-full"
+                      onClick={() => {
+                        if (!gameId && pgn.trim()) stashMistakesPgn(pgn);
+                      }}
                     >
                       Practice mistakes
                     </Link>

@@ -211,7 +211,7 @@ Helpers: `encodeBotLevel` / `decodeBotLevel`.
 | `lib/practice-utils.ts` | Clock format, move sounds, promotion detect |
 | `lib/bot-personality.ts` | `chooseStyledMove`, `chooseEngineMove` |
 | `lib/classify.ts` | Move labels (Best/Mistake/…) from eval delta |
-| `lib/analysis-cache.ts` | localStorage + parse stored reviews / drill extraction |
+| `lib/analysis-cache.ts` | localStorage + index of pasted-PGN reviews / drill extraction |
 
 ### Practice modes
 
@@ -262,6 +262,7 @@ Do not regress to “puzzle-only” (skipping the mistake replay).
 | `lib/classify.ts` | Classification thresholds |
 
 Flow: Games → Analyze → `analysisJson` on `Game` → Practice mistakes can load that JSON.
+Pasted PGNs (no `gameId`) save to localStorage + an index; `/practice/mistakes` lists both server reviews and local reviews, and Review always offers Practice mistakes.
 
 ---
 

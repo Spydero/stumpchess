@@ -25,6 +25,18 @@ export type StoredAnalysis = {
   savedAt: string;
 };
 
+export type LocalAnalysisEntry = {
+  hash: string;
+  pgn: string;
+  depth: number;
+  savedAt: string;
+  mistakeCount: number;
+  label: string;
+};
+
+const INDEX_KEY = "stumpchess-analysis-index";
+const MISTAKES_PGN_KEY = "stumpchess-mistakes-pgn";
+
 export function serializeAnalysis(
   moves: StoredAnalyzedMove[],
   depth: number
@@ -49,11 +61,52 @@ export function parseStoredAnalysis(raw: string | null | undefined): StoredAnaly
   }
 }
 
-function pgnKey(pgn: string) {
+export function hashPgn(pgn: string) {
   let h = 0;
   const s = pgn.trim();
   for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
-  return `stumpchess-analysis:${h}`;
+  return String(h);
+}
+
+function pgnKey(pgn: string) {
+  return `stumpchess-analysis:${hashPgn(pgn)}`;
+}
+
+function headerValue(pgn: string, name: string) {
+  const re = new RegExp(`\\[${name}\\s+"([^"]*)"\\]`, "i");
+  return re.exec(pgn)?.[1]?.trim() || "";
+}
+
+export function labelFromPgn(pgn: string) {
+  const white = headerValue(pgn, "White") || "White";
+  const black = headerValue(pgn, "Black") || "Black";
+  const result = headerValue(pgn, "Result");
+  const event = headerValue(pgn, "Event");
+  const base = `${white} vs ${black}`;
+  const bits = [base];
+  if (result && result !== "*") bits.push(result);
+  if (event) bits.push(event);
+  return bits.join(" · ");
+}
+
+function readIndex(): LocalAnalysisEntry[] {
+  try {
+    const raw = localStorage.getItem(INDEX_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw) as LocalAnalysisEntry[];
+    if (!Array.isArray(list)) return [];
+    return list.filter((e) => e && typeof e.hash === "string" && typeof e.pgn === "string");
+  } catch {
+    return [];
+  }
+}
+
+function writeIndex(list: LocalAnalysisEntry[]) {
+  try {
+    localStorage.setItem(INDEX_KEY, JSON.stringify(list.slice(0, 80)));
+  } catch {
+    /* quota */
+  }
 }
 
 /** Local fallback when there is no gameId (pasted PGN). */
@@ -65,11 +118,59 @@ export function loadLocalAnalysis(pgn: string): StoredAnalysis | null {
   }
 }
 
+export function loadLocalAnalysisByHash(hash: string): {
+  analysis: StoredAnalysis;
+  pgn: string;
+} | null {
+  const entry = readIndex().find((e) => e.hash === hash);
+  if (!entry) return null;
+  const analysis = loadLocalAnalysis(entry.pgn);
+  if (!analysis) return null;
+  return { analysis, pgn: entry.pgn };
+}
+
 export function saveLocalAnalysis(pgn: string, analysis: StoredAnalysis) {
+  const trimmed = pgn.trim();
+  if (!trimmed) return;
+  const hash = hashPgn(trimmed);
   try {
-    localStorage.setItem(pgnKey(pgn), JSON.stringify(analysis));
+    localStorage.setItem(`stumpchess-analysis:${hash}`, JSON.stringify(analysis));
   } catch {
-    /* quota / private mode */
+    return;
+  }
+  const entry: LocalAnalysisEntry = {
+    hash,
+    pgn: trimmed,
+    depth: analysis.depth,
+    savedAt: analysis.savedAt,
+    mistakeCount: filterMistakeMoves(analysis.moves).length,
+    label: labelFromPgn(trimmed),
+  };
+  const prev = readIndex().filter((e) => e.hash !== hash);
+  writeIndex([entry, ...prev]);
+}
+
+/** Indexed local reviews (pasted PGN / unsaved gameId reviews). */
+export function listLocalAnalyses(): LocalAnalysisEntry[] {
+  return readIndex().sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
+}
+
+/** Hand-off from /analysis → mistake drills for a pasted PGN. */
+export function stashMistakesPgn(pgn: string) {
+  try {
+    sessionStorage.setItem(MISTAKES_PGN_KEY, pgn.trim());
+  } catch {
+    /* ignore */
+  }
+}
+
+export function takeStashedMistakesPgn(): string | null {
+  try {
+    const pgn = sessionStorage.getItem(MISTAKES_PGN_KEY);
+    if (pgn) sessionStorage.removeItem(MISTAKES_PGN_KEY);
+    return pgn?.trim() || null;
+  } catch {
+    return null;
   }
 }
 

@@ -3,13 +3,26 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import {
+  PERSONALITY_BOTS,
+  decodeBotLevel,
+  formatEngineElo,
+} from "@chess/shared";
 import { MistakeDrill } from "@/components/MistakeDrill";
 import { useSession } from "@/lib/auth-client";
 import { apiFetch } from "@/lib/api";
 import { userHasVip } from "@/lib/roles";
 import {
   filterMistakeMoves,
+  hashPgn,
+  labelFromPgn,
+  listLocalAnalyses,
+  loadLocalAnalysis,
+  loadLocalAnalysisByHash,
   parseStoredAnalysis,
+  saveLocalAnalysis,
+  takeStashedMistakesPgn,
+  type LocalAnalysisEntry,
   type StoredAnalyzedMove,
 } from "@/lib/analysis-cache";
 
@@ -19,11 +32,49 @@ type GameRow = {
   analysisJson?: string | null;
   analysisDepth?: number | null;
   analyzedAt?: string | null;
+  botLevel?: number | null;
   white: { username: string } | null;
   black: { username: string } | null;
   result: string | null;
   isBot: boolean;
 };
+
+type Source =
+  | { kind: "game"; id: string }
+  | { kind: "local"; hash: string }
+  | { kind: "paste"; pgn: string };
+
+function botSideLabel(level: number | null | undefined) {
+  if (level == null) return "Practice";
+  const d = decodeBotLevel(level);
+  if (d.kind === "engine") return `Stockfish ${formatEngineElo(d.elo)}`;
+  const named = PERSONALITY_BOTS.find((b) => b.skill === d.skill);
+  return named?.name || "Bot";
+}
+
+function gameLabel(g: GameRow) {
+  const white = g.white?.username || (g.isBot && !g.white ? botSideLabel(g.botLevel) : "White");
+  const black = g.black?.username || (g.isBot && !g.black ? botSideLabel(g.botLevel) : "Black");
+  return (
+    `${white} vs ${black}` +
+    (g.result ? ` · ${g.result}` : "") +
+    (g.analysisDepth ? ` · d${g.analysisDepth}` : "")
+  );
+}
+
+function sourceKey(s: Source | null) {
+  if (!s) return "";
+  if (s.kind === "game") return `game:${s.id}`;
+  if (s.kind === "local") return `local:${s.hash}`;
+  return `paste:${hashPgn(s.pgn)}`;
+}
+
+function parseSourceKey(raw: string): Source | null {
+  if (!raw) return null;
+  if (raw.startsWith("game:")) return { kind: "game", id: raw.slice(5) };
+  if (raw.startsWith("local:")) return { kind: "local", hash: raw.slice(6) };
+  return null;
+}
 
 function MistakesInner() {
   const search = useSearchParams();
@@ -32,9 +83,14 @@ function MistakesInner() {
   const user = data?.user as { id: string; role?: string; vipExpiresAt?: string | null } | undefined;
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [games, setGames] = useState<GameRow[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(gameIdParam);
+  const [localEntries, setLocalEntries] = useState<LocalAnalysisEntry[]>([]);
+  const [source, setSource] = useState<Source | null>(
+    gameIdParam ? { kind: "game", id: gameIdParam } : null
+  );
+  const [paste, setPaste] = useState("");
   const [drills, setDrills] = useState<StoredAnalyzedMove[] | null>(null);
   const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
 
   useEffect(() => {
     if (!user) {
@@ -46,43 +102,137 @@ function MistakesInner() {
 
   useEffect(() => {
     if (!user || !allowed) return;
+    setLocalEntries(listLocalAnalyses());
+
+    const stashed = takeStashedMistakesPgn();
+    if (stashed) {
+      const local = loadLocalAnalysis(stashed);
+      if (local) {
+        setSource({ kind: "local", hash: hashPgn(stashed) });
+        setPaste(stashed);
+      } else {
+        setPaste(stashed);
+        setSource({ kind: "paste", pgn: stashed });
+      }
+    }
+
     apiFetch("/api/games/mine", { userId: user.id })
       .then((list: GameRow[]) => {
-        const reviewed = list.filter((g) => g.analysisJson || g.analyzedAt);
+        const reviewed = list.filter((g) => Boolean(g.analysisJson));
         setGames(reviewed);
         if (gameIdParam && reviewed.some((g) => g.id === gameIdParam)) {
-          setSelectedId(gameIdParam);
+          setSource({ kind: "game", id: gameIdParam });
+        } else if (!stashed && !gameIdParam && reviewed.length === 1 && !listLocalAnalyses().length) {
+          setSource({ kind: "game", id: reviewed[0].id });
         }
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load games"));
   }, [user, allowed, gameIdParam]);
 
   useEffect(() => {
-    if (!selectedId || !user) {
+    if (!source) {
       setDrills(null);
+      setStatus("");
       return;
     }
+
+    let cancelled = false;
     setError("");
-    apiFetch(`/api/games/${selectedId}`)
-      .then((g: GameRow) => {
-        const parsed = parseStoredAnalysis(g.analysisJson);
-        if (!parsed) {
+    setStatus("");
+
+    async function load() {
+      if (!source) return;
+
+      if (source.kind === "game") {
+        if (!user) return;
+        try {
+          const g: GameRow = await apiFetch(`/api/games/${source.id}`);
+          if (cancelled) return;
+          const parsed = parseStoredAnalysis(g.analysisJson);
+          if (!parsed) {
+            setDrills([]);
+            setError("No saved analysis on this game. Open Review and run Stockfish first.");
+            return;
+          }
+          const next = filterMistakeMoves(parsed.moves);
+          setDrills(next);
+          setStatus(
+            next.length
+              ? `${next.length} positions from this game (d${parsed.depth}).`
+              : "No drillable mistakes in this review."
+          );
+        } catch (e) {
+          if (cancelled) return;
           setDrills([]);
-          setError("No saved analysis on this game. Open Review and run Stockfish first.");
+          setError(e instanceof Error ? e.message : "Could not load game");
+        }
+        return;
+      }
+
+      if (source.kind === "local") {
+        const packed = loadLocalAnalysisByHash(source.hash);
+        if (!packed) {
+          setDrills([]);
+          setError("Local review missing. Re-analyze that PGN on the Review page.");
           return;
         }
-        setDrills(filterMistakeMoves(parsed.moves));
-      })
-      .catch((e) => {
-        setDrills([]);
-        setError(e instanceof Error ? e.message : "Could not load game");
-      });
-  }, [selectedId, user]);
+        const next = filterMistakeMoves(packed.analysis.moves);
+        setDrills(next);
+        setStatus(
+          next.length
+            ? `${next.length} positions from local review (d${packed.analysis.depth}).`
+            : "No drillable mistakes in this local review."
+        );
+        return;
+      }
 
-  const selectedGame = useMemo(
-    () => games.find((g) => g.id === selectedId) || null,
-    [games, selectedId]
-  );
+      // paste — also index older local caches that predate the review index
+      const local = loadLocalAnalysis(source.pgn);
+      if (!local) {
+        setDrills([]);
+        setError("No saved review for this PGN. Open Review, paste it, run Stockfish, then come back.");
+        return;
+      }
+      saveLocalAnalysis(source.pgn, local);
+      const next = filterMistakeMoves(local.moves);
+      setDrills(next);
+      setLocalEntries(listLocalAnalyses());
+      setSource({ kind: "local", hash: hashPgn(source.pgn) });
+      setStatus(
+        next.length
+          ? `${next.length} positions from pasted PGN (d${local.depth}).`
+          : "No drillable mistakes in this review."
+      );
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [source, user]);
+
+  const totalSources = games.length + localEntries.length;
+
+  const selectValue = useMemo(() => sourceKey(source), [source]);
+
+  function applyPaste() {
+    const pgn = paste.trim();
+    if (!pgn) {
+      setError("Paste a PGN first.");
+      return;
+    }
+    const local = loadLocalAnalysis(pgn);
+    if (!local) {
+      setSource({ kind: "paste", pgn });
+      setError("No saved review for this PGN yet. Analyze it on Review first.");
+      setDrills([]);
+      return;
+    }
+    saveLocalAnalysis(pgn, local);
+    setError("");
+    setSource({ kind: "local", hash: hashPgn(pgn) });
+    setLocalEntries(listLocalAnalyses());
+  }
 
   if (isPending || allowed === null) {
     return <p className="pulse-soft ui muted">Loading…</p>;
@@ -104,9 +254,7 @@ function MistakesInner() {
       <div className="panel p-6 max-w-lg">
         <p className="forum-kicker">VIP</p>
         <h1 className="text-3xl mt-1 mb-3">Practice mistakes</h1>
-        <p className="muted ui text-sm mb-4">
-          Mistake drills need VIP.
-        </p>
+        <p className="muted ui text-sm mb-4">Mistake drills need VIP.</p>
         <Link href="/practice" className="btn btn-ghost">
           Back to Practice
         </Link>
@@ -121,53 +269,109 @@ function MistakesInner() {
           <p className="forum-kicker">VIP · Mistake drills</p>
           <h1>Practice your mistakes</h1>
           <p className="muted ui text-sm mt-2 mb-0 max-w-xl">
-            Replay positions from your reviews where you lost eval.
+            Drill from reviewed site games or any PGN you analyzed on Review (saved in this browser).
           </p>
         </div>
-        <Link href="/practice" className="btn btn-ghost">
-          Practice board
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/analysis" className="btn btn-accent">
+            Review / paste PGN
+          </Link>
+          <Link href="/practice" className="btn btn-ghost">
+            Practice board
+          </Link>
+        </div>
       </header>
 
-      <div className="panel p-4 mb-5 space-y-3">
-        <label className="ui text-sm muted block">Reviewed game</label>
-        <select
-          className="input"
-          value={selectedId || ""}
-          onChange={(e) => setSelectedId(e.target.value || null)}
-        >
-          <option value="">Select a game…</option>
-          {games.map((g) => (
-            <option key={g.id} value={g.id}>
-              {(g.white?.username || "White") +
-                " vs " +
-                (g.black?.username || (g.isBot ? "Bot" : "Black")) +
-                (g.result ? ` · ${g.result}` : "") +
-                (g.analysisDepth ? ` · d${g.analysisDepth}` : "")}
-            </option>
-          ))}
-        </select>
-        {!games.length && (
-          <p className="ui text-sm muted m-0">
-            No reviewed games yet.{" "}
-            <Link href="/games" className="link-accent">
-              Analyze a game
-            </Link>{" "}
-            first.
-          </p>
-        )}
+      <div className="panel p-4 mb-5 space-y-4">
+        <div className="space-y-2">
+          <label className="ui text-sm muted block">Reviewed source</label>
+          <select
+            className="input"
+            value={selectValue}
+            onChange={(e) => setSource(parseSourceKey(e.target.value))}
+          >
+            <option value="">Select a review…</option>
+            {games.length > 0 && (
+              <optgroup label="Your games (server)">
+                {games.map((g) => (
+                  <option key={g.id} value={`game:${g.id}`}>
+                    {gameLabel(g)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {localEntries.length > 0 && (
+              <optgroup label="Local reviews (pasted PGN)">
+                {localEntries.map((e) => (
+                  <option key={e.hash} value={`local:${e.hash}`}>
+                    {e.label}
+                    {e.depth ? ` · d${e.depth}` : ""}
+                    {e.mistakeCount ? ` · ${e.mistakeCount} drills` : ""}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          {!totalSources && (
+            <p className="ui text-sm muted m-0">
+              No reviews yet.{" "}
+              <Link href="/analysis" className="link-accent">
+                Paste a PGN on Review
+              </Link>
+              , run Stockfish, then use Practice mistakes (or the button on Review).
+            </p>
+          )}
+          {games.length === 1 && localEntries.length === 0 && (
+            <p className="ui text-xs muted m-0">
+              Only games with a saved Stockfish review appear here. Finished games without Analyze
+              stay on{" "}
+              <Link href="/games" className="link-accent">
+                Games
+              </Link>
+              . Pasted PGNs show under Local reviews after you analyze them.
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <label className="ui text-sm muted block">Or load a reviewed PGN</label>
+          <textarea
+            className="input min-h-[96px] font-mono text-xs"
+            placeholder="Paste a PGN you already analyzed on Review…"
+            value={paste}
+            onChange={(e) => setPaste(e.target.value)}
+          />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn btn-ghost !text-xs" onClick={applyPaste}>
+              Load drills from PGN
+            </button>
+            {paste.trim() && !loadLocalAnalysis(paste) && (
+              <Link
+                href="/analysis"
+                className="btn btn-accent !text-xs"
+                onClick={() => {
+                  try {
+                    sessionStorage.setItem("stumpchess-analyze-pgn", paste.trim());
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+              >
+                Analyze this PGN first
+              </Link>
+            )}
+          </div>
+          {paste.trim() && loadLocalAnalysis(paste) && (
+            <p className="ui text-xs muted m-0">{labelFromPgn(paste)} has a local review.</p>
+          )}
+        </div>
+
         {error && <p className="ui text-sm text-[var(--danger)] m-0">{error}</p>}
-        {selectedGame && drills && (
-          <p className="ui text-xs muted m-0">
-            {drills.length
-              ? `${drills.length} positions to drill (Inaccuracy / Mistake / Miss / Blunder).`
-              : "No mistakes in this review."}
-          </p>
-        )}
+        {status && !error && <p className="ui text-xs muted m-0">{status}</p>}
       </div>
 
       {drills && drills.length > 0 && (
-        <MistakeDrill key={selectedId || "x"} drills={drills} />
+        <MistakeDrill key={sourceKey(source) || "x"} drills={drills} />
       )}
     </div>
   );
