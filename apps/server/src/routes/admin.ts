@@ -3,7 +3,15 @@ import { prisma, Role } from "@chess/db";
 import { ROLE_RANK, canAssignRoles, type Role as SharedRole } from "@chess/shared";
 import { requireUser, requireRank, type AuthedRequest } from "../middleware";
 
-const ASSIGNABLE: SharedRole[] = ["MEMBER", "VIP_30", "VIP_PERM", "STA", "LTA", "MANAGER"];
+const ASSIGNABLE: SharedRole[] = [
+  "MEMBER",
+  "TOURNAMENT_HOST",
+  "VIP_30",
+  "VIP_PERM",
+  "STA",
+  "LTA",
+  "MANAGER",
+];
 
 export function createAdminRouter() {
   const router = Router();

@@ -1,5 +1,6 @@
 export type Role =
   | "MEMBER"
+  | "TOURNAMENT_HOST"
   | "VIP_30"
   | "VIP_PERM"
   | "STA"
@@ -9,6 +10,7 @@ export type Role =
 
 export const ROLE_RANK: Record<Role, number> = {
   MEMBER: 0,
+  TOURNAMENT_HOST: 0,
   VIP_30: 1,
   VIP_PERM: 2,
   STA: 3,
@@ -19,6 +21,7 @@ export const ROLE_RANK: Record<Role, number> = {
 
 export const ROLE_LABEL: Record<Role, string> = {
   MEMBER: "Member",
+  TOURNAMENT_HOST: "Tournament Host",
   VIP_30: "VIP (30 days)",
   VIP_PERM: "VIP (Permanent)",
   STA: "Short Term Admin",
@@ -30,6 +33,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 /** Fallback role hues (UI prefers theme-aware `.role-*` CSS). */
 export const ROLE_COLOR: Record<Role, string> = {
   MEMBER: "#8a8074",
+  TOURNAMENT_HOST: "#2f6f5e",
   VIP_30: "#d4a017",
   VIP_PERM: "#e0b84a",
   STA: "#e05a4a",
@@ -310,6 +314,14 @@ export function hasVipAccess(role: Role, vipExpiresAt: Date | string | null | un
     return new Date(vipExpiresAt).getTime() > Date.now();
   }
   return false;
+}
+
+/** VIP+ (incl. LTA+) or dedicated Tournament Host may create/run tournaments. */
+export function canHostTournament(
+  role: Role,
+  vipExpiresAt: Date | string | null | undefined
+): boolean {
+  return role === "TOURNAMENT_HOST" || hasVipAccess(role, vipExpiresAt);
 }
 
 export function canAssignRoles(actor: Role): boolean {

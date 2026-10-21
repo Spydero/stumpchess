@@ -9,6 +9,7 @@ datasource db {
 
 enum Role {
   MEMBER
+  TOURNAMENT_HOST
   VIP_30
   VIP_PERM
   STA
@@ -22,6 +23,13 @@ enum GameStatus {
   ACTIVE
   FINISHED
   ABORTED
+}
+
+enum TournamentStatus {
+  OPEN
+  RUNNING
+  FINISHED
+  CANCELLED
 }
 
 model User {
@@ -52,6 +60,8 @@ model User {
   roleAssigned  RoleChangeLog[]  @relation("ActorUser")
   conversations ConversationParticipant[]
   messagesSent  DirectMessage[]           @relation("MessagesSent")
+  tournamentsHosted Tournament[]          @relation("TournamentHost")
+  tournamentEntries TournamentPlayer[]
 }
 
 model Session {
@@ -112,9 +122,51 @@ model Game {
   analysisJson   String?
   analysisDepth  Int?
   analyzedAt     DateTime?
+  tournamentId   String?
+  tournament     Tournament? @relation(fields: [tournamentId], references: [id], onDelete: SetNull)
+  tournamentRound Int?
   createdAt    DateTime   @default(now())
   startedAt    DateTime?
   endedAt      DateTime?
+
+  @@index([tournamentId, tournamentRound])
+}
+
+model Tournament {
+  id          String           @id @default(cuid())
+  name        String
+  description String           @default("")
+  hostId      String
+  host        User             @relation("TournamentHost", fields: [hostId], references: [id], onDelete: Cascade)
+  status      TournamentStatus @default(OPEN)
+  timeControl String
+  initialMs   Int
+  incrementMs Int              @default(0)
+  maxRounds   Int              @default(4)
+  currentRound Int             @default(0)
+  maxPlayers  Int              @default(32)
+  createdAt   DateTime         @default(now())
+  startedAt   DateTime?
+  endedAt     DateTime?
+  players     TournamentPlayer[]
+  games       Game[]
+}
+
+model TournamentPlayer {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score        Float      @default(0)
+  wins         Int        @default(0)
+  losses       Int        @default(0)
+  draws        Int        @default(0)
+  byes         Int        @default(0)
+  joinedAt     DateTime   @default(now())
+
+  @@unique([tournamentId, userId])
+  @@index([tournamentId, score])
 }
 
 model ForumCategory {

@@ -51,15 +51,17 @@ Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` / `apps/web/.env.loc
 | Role | Notes |
 |------|--------|
 | Member | Play, forum, search, bots, openings explorer (book + live SF) |
-| VIP 30 / VIP Permanent | Full game analysis, Practice (coach / both sides), mistake drills |
+| Tournament Host | Create/run Swiss tournaments |
+| VIP 30 / VIP Permanent | Full game analysis, Practice, mistake drills, host tournaments |
 | STA (red, 28d) | Limited forum mod |
 | LTA (blue) | Assign VIP/STA |
 | Manager | High staff |
 | Owner (`jOjo`) | All; public stats hidden |
 
-## Watch / Messages / Settings
+## Watch / Tournaments / Messages / Settings
 
 - **`/watch`**: live human games; spectate with no engine during play.
+- **`/tournaments`**: Swiss events. Hosts: VIP+ or Tournament Host (LTA+ assigns).
 - **`/messages`**: direct messages (also Message on profiles).
 - **`/settings`**: site light/dark + Chess.com-style board themes (local device).
 

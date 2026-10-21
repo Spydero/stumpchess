@@ -13,6 +13,8 @@ import { createUsersRouter } from "./routes/users";
 import { createGamesRouter } from "./routes/games";
 import { createAdminRouter } from "./routes/admin";
 import { createMessagesRouter } from "./routes/messages";
+import { createTournamentsRouter } from "./routes/tournaments";
+import { applyTournamentGameResult } from "./tournament-score";
 import { Matchmaking } from "./matchmaking";
 
 dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
@@ -37,6 +39,7 @@ app.use("/api/users", createUsersRouter());
 app.use("/api/games", createGamesRouter());
 app.use("/api/admin", createAdminRouter());
 app.use("/api/messages", createMessagesRouter());
+app.use("/api/tournaments", createTournamentsRouter());
 
 app.get("/api/me/vip", async (req, res) => {
   const userId = String(req.headers["x-user-id"] || "");
@@ -178,6 +181,16 @@ io.on("connection", (socket) => {
         if (game.blackId) await prisma.user.update({ where: { id: game.blackId }, data: { draws: { increment: 1 } } });
       }
 
+      if (ended && result && game.tournamentId) {
+        await applyTournamentGameResult({
+          gameId: game.id,
+          tournamentId: game.tournamentId,
+          whiteId: game.whiteId,
+          blackId: game.blackId,
+          result,
+        });
+      }
+
       socket.to(`game:${payload.gameId}`).emit("game:move", payload);
       if (ended) {
         io.to(`game:${payload.gameId}`).emit("game:ended", { result, winnerId, fen: chess.fen() });
@@ -255,6 +268,15 @@ io.on("connection", (socket) => {
     if (winnerId) {
       await prisma.user.update({ where: { id: winnerId }, data: { wins: { increment: 1 } } });
       await prisma.user.update({ where: { id: meta.userId }, data: { losses: { increment: 1 } } });
+    }
+    if (game.tournamentId) {
+      await applyTournamentGameResult({
+        gameId: game.id,
+        tournamentId: game.tournamentId,
+        whiteId: game.whiteId,
+        blackId: game.blackId,
+        result,
+      });
     }
     io.to(`game:${payload.gameId}`).emit("game:ended", { result, winnerId, reason: "resign" });
   });

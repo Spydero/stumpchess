@@ -5,6 +5,7 @@ import { TIME_CONTROLS, hasVipAccess, type Role } from "@chess/shared";
 import { requireUser, type AuthedRequest } from "../middleware";
 import { param } from "../params";
 import { purgeExpiredGames } from "../purge";
+import { applyTournamentGameResult } from "../tournament-score";
 
 export function createGamesRouter() {
   const router = Router();
@@ -190,6 +191,16 @@ export function createGamesRouter() {
         if (game.whiteId) await prisma.user.update({ where: { id: game.whiteId }, data: { draws: { increment: 1 } } });
         if (game.blackId) await prisma.user.update({ where: { id: game.blackId }, data: { draws: { increment: 1 } } });
       }
+    }
+
+    if (game.tournamentId) {
+      await applyTournamentGameResult({
+        gameId: game.id,
+        tournamentId: game.tournamentId,
+        whiteId: game.whiteId,
+        blackId: game.blackId,
+        result,
+      });
     }
 
     res.json(updated);

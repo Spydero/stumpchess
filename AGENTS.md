@@ -12,6 +12,7 @@ Human-facing overview: [`README.md`](README.md). This file is for agents.
 
 - Online play (matchmaking + challenges + WebRTC with socket relay fallback)
 - **Watch** live human games (spectators: no engine during play)
+- **Tournaments** (Swiss): host with VIP+ or `TOURNAMENT_HOST`; LTA+ assigns roles
 - Direct **Messages** between users
 - Board themes in **Settings** (plus site light/dark)
 - vs Computer (personality bots + Stockfish engine lane)
@@ -80,9 +81,10 @@ Defined in `packages/shared/src/index.ts` + Prisma `Role` enum.
 | Role | Access |
 |------|--------|
 | MEMBER | Play, forum, free vs computer, openings book + live SF on `/openings` |
-| VIP_30 / VIP_PERM | `/analysis`, `/practice`, mistake drills (`hasVipAccess`) |
-| STA | Limited forum mod (time-limited) |
-| LTA+ | Can assign VIP/STA (`/admin`) |
+| TOURNAMENT_HOST | Can create/run tournaments (no VIP features by itself) |
+| VIP_30 / VIP_PERM | `/analysis`, `/practice`, mistake drills, host tournaments (`hasVipAccess`) |
+| STA | Limited forum mod (time-limited); cannot assign roles |
+| LTA+ | Can assign roles incl. Tournament Host / VIP (`/admin`) |
 | OWNER | Everything; profile stats hidden |
 
 VIP check: `hasVipAccess(role, vipExpiresAt)` in shared; web helper `apps/web/src/lib/roles.ts` (`userHasVip`).
@@ -96,6 +98,7 @@ VIP check: `hasVipAccess(role, vipExpiresAt)` in shared; web helper `apps/web/sr
 | `/` | `app/page.tsx` | Home |
 | `/play` | `app/play/page.tsx` | Queue, vs computer, challenge |
 | `/watch` | `app/watch/page.tsx` | Live human games lobby → spectate `/game/[id]` |
+| `/tournaments`, `/tournaments/[id]` | tournament pages | Swiss events, standings, pairings |
 | `/messages`, `/messages/[id]` | messages pages | DMs inbox + thread |
 | `/settings` | `app/settings/page.tsx` | Site theme + board theme |
 | `/openings` | `app/openings/page.tsx` | ECO book explorer; free Analysis toggle; Book badges |
@@ -347,8 +350,8 @@ Owner avatar asset: `public/avatars/tree-stump.jpg` (seed sets `image`). Fallbac
 - Full rated puzzle bank (mistake drills are the current “puzzle-like” loop)
 - Payment for VIP (admin-assigned only)
 - Live master/Lichess win-rate explorer stats
-- Tournaments + `TOURNAMENT_HOST` (VIP+ or host role; LTA+ assigns roles)
-- Activity badges
+- Activity badges / richer arena formats
+- Rated puzzle bank; paid VIP
 
 ---
 

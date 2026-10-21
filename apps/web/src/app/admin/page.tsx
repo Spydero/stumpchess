@@ -16,7 +16,15 @@ type AdminUser = {
   banned: boolean;
 };
 
-const ROLE_OPTIONS: Role[] = ["MEMBER", "VIP_30", "VIP_PERM", "STA", "LTA", "MANAGER"];
+const ROLE_OPTIONS: Role[] = [
+  "MEMBER",
+  "TOURNAMENT_HOST",
+  "VIP_30",
+  "VIP_PERM",
+  "STA",
+  "LTA",
+  "MANAGER",
+];
 
 export default function AdminPage() {
   const { data, isPending } = useSession();
@@ -75,7 +83,8 @@ export default function AdminPage() {
         <h1 className="text-3xl mb-1">Admin</h1>
         <p className="ui text-sm muted m-0">Role: {user.role}</p>
         <p className="ui text-sm muted mt-2 mb-0 max-w-xl">
-          Assign <strong>VIP_30</strong> (30 days) or <strong>VIP_PERM</strong> for Practice and analysis.
+          Assign VIP for Practice/analysis, or <strong>Tournament Host</strong> to run events.
+          Role changes need LTA or above.
         </p>
       </div>
 
@@ -85,7 +94,13 @@ export default function AdminPage() {
           <select className="input" name="role" defaultValue="VIP_30">
             {ROLE_OPTIONS.map((r) => (
               <option key={r} value={r}>
-                {r === "VIP_30" ? "VIP (30 days)" : r === "VIP_PERM" ? "VIP (Permanent)" : r}
+                {r === "VIP_30"
+                  ? "VIP (30 days)"
+                  : r === "VIP_PERM"
+                    ? "VIP (Permanent)"
+                    : r === "TOURNAMENT_HOST"
+                      ? "Tournament Host"
+                      : r}
               </option>
             ))}
           </select>

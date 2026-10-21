@@ -6,6 +6,8 @@ function roleSlug(role: string) {
       return "vip30";
     case "VIP_PERM":
       return "vip";
+    case "TOURNAMENT_HOST":
+      return "thost";
     case "STA":
       return "sta";
     case "LTA":
@@ -33,6 +35,8 @@ function shortLabel(role: string) {
       return "VIP 30d";
     case "VIP_PERM":
       return "VIP";
+    case "TOURNAMENT_HOST":
+      return "Host";
     default:
       return roleLabel(role);
   }

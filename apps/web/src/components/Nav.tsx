@@ -10,13 +10,14 @@ import { useTheme } from "./ThemeProvider";
 const PRIMARY = [
   { href: "/play", label: "Play" },
   { href: "/watch", label: "Watch" },
+  { href: "/tournaments", label: "Events" },
   { href: "/openings", label: "Openings" },
   { href: "/practice", label: "Practice" },
   { href: "/games", label: "Games" },
-  { href: "/messages", label: "Messages" },
 ];
 
 const MORE = [
+  { href: "/messages", label: "Messages" },
   { href: "/forum", label: "Forum" },
   { href: "/analysis", label: "Analysis" },
   { href: "/leaders", label: "Leaders" },
