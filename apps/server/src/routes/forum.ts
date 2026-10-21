@@ -98,15 +98,52 @@ export function createForumRouter() {
     res.status(201).json(post);
   });
 
-  router.delete("/posts/:id", requireUser, async (req: AuthedRequest, res) => {
-    const post = await prisma.forumPost.findUnique({ where: { id: param(req, "id") } });
+  /** Authors (or STA+) can edit post body. Locked threads: STA+ only. */
+  router.patch("/posts/:id", requireUser, async (req: AuthedRequest, res) => {
+    const { body } = req.body as { body?: string };
+    if (!body?.trim()) return res.status(400).json({ error: "Body required" });
+
+    const post = await prisma.forumPost.findUnique({
+      where: { id: param(req, "id") },
+      include: { thread: { select: { locked: true } } },
+    });
     if (!post) return res.status(404).json({ error: "Not found" });
+
     const isAuthor = post.authorId === req.user!.id;
-    if (!isAuthor && !canModerateForum(req.user!.role)) {
-      return res.status(403).json({ error: "Forbidden" });
+    const isMod = canModerateForum(req.user!.role);
+    if (!isAuthor && !isMod) return res.status(403).json({ error: "Forbidden" });
+    if (post.thread.locked && !isMod) {
+      return res.status(403).json({ error: "Thread locked" });
     }
+
+    const updated = await prisma.forumPost.update({
+      where: { id: post.id },
+      data: { body: body.trim().slice(0, 10000) },
+      include: {
+        author: { select: { id: true, username: true, role: true, image: true } },
+      },
+    });
+    res.json(updated);
+  });
+
+  /** Delete is staff-only (STA+). Authors cannot delete their own posts. */
+  router.delete("/posts/:id", requireUser, async (req: AuthedRequest, res) => {
+    if (!canModerateForum(req.user!.role)) {
+      return res.status(403).json({ error: "Only staff can delete posts" });
+    }
+    const post = await prisma.forumPost.findUnique({
+      where: { id: param(req, "id") },
+      select: { id: true, threadId: true },
+    });
+    if (!post) return res.status(404).json({ error: "Not found" });
+
     await prisma.forumPost.delete({ where: { id: post.id } });
-    res.json({ ok: true });
+    const remaining = await prisma.forumPost.count({ where: { threadId: post.threadId } });
+    if (remaining === 0) {
+      await prisma.forumThread.delete({ where: { id: post.threadId } });
+      return res.json({ ok: true, threadDeleted: true });
+    }
+    res.json({ ok: true, threadDeleted: false });
   });
 
   router.post("/threads/:id/lock", requireUser, async (req: AuthedRequest, res) => {

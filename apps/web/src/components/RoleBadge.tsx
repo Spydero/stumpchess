@@ -21,31 +21,11 @@ function roleSlug(role: string) {
   }
 }
 
-function shortLabel(role: string) {
-  switch (role) {
-    case "OWNER":
-      return "Owner";
-    case "STA":
-      return "STA";
-    case "LTA":
-      return "LTA";
-    case "MANAGER":
-      return "Manager";
-    case "VIP_30":
-      return "VIP 30d";
-    case "VIP_PERM":
-      return "VIP";
-    case "TOURNAMENT_HOST":
-      return "Host";
-    default:
-      return roleLabel(role);
-  }
-}
-
 export function RoleBadge({ role }: { role: string }) {
+  const label = roleLabel(role);
   return (
-    <span className={`role-badge role-${roleSlug(role)}`} title={roleLabel(role)}>
-      {shortLabel(role)}
+    <span className={`role-badge role-${roleSlug(role)}`} title={label}>
+      {label}
     </span>
   );
 }

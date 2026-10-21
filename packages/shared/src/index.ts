@@ -34,18 +34,19 @@ export const ROLE_LABEL: Record<Role, string> = {
 export const ROLE_COLOR: Record<Role, string> = {
   MEMBER: "#8a8074",
   TOURNAMENT_HOST: "#2f6f5e",
-  VIP_30: "#d4a017",
-  VIP_PERM: "#e0b84a",
+  VIP_30: "#c9a227",
+  VIP_PERM: "#e0b020",
   STA: "#e05a4a",
   LTA: "#4aa3e8",
   MANAGER: "#c084fc",
-  OWNER: "#e8c547",
+  OWNER: "#3d6b4f",
 };
 
 export const OWNER_USERNAME = "jOjo";
 
+/** kind aligns with chess.com pools: bullet <3m, blitz 3–<10m, rapid 10m+. */
 export const TIME_CONTROLS = [
-  { id: "3+0", initialMs: 180_000, incrementMs: 0, label: "3+0", kind: "bullet" as const },
+  { id: "3+0", initialMs: 180_000, incrementMs: 0, label: "3+0", kind: "blitz" as const },
   { id: "5+0", initialMs: 300_000, incrementMs: 0, label: "5+0", kind: "blitz" as const },
   { id: "10+0", initialMs: 600_000, incrementMs: 0, label: "10+0", kind: "rapid" as const },
 ] as const;
@@ -355,3 +356,5 @@ export type MovePayload = {
 };
 
 export type GameResult = "1-0" | "0-1" | "1/2-1/2" | "*";
+
+export * from "./rating";

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { formatClubRating, type RatingState } from "@chess/shared";
 import { apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/auth-client";
 import { RoleBadge } from "@/components/RoleBadge";
@@ -24,6 +25,17 @@ type Profile = {
   wins?: number;
   losses?: number;
   draws?: number;
+  rating?: number;
+  ratedGames?: number;
+  ratingBullet?: number;
+  rdBullet?: number;
+  gamesBullet?: number;
+  ratingBlitz?: number;
+  rdBlitz?: number;
+  gamesBlitz?: number;
+  ratingRapid?: number;
+  rdRapid?: number;
+  gamesRapid?: number;
   createdAt?: string;
   liveGames?: LiveGame[];
   games: Array<{
@@ -36,10 +48,14 @@ type Profile = {
   }>;
 };
 
+function pool(rating: number, rd: number, games: number): RatingState {
+  return { rating, rd, games };
+}
+
 function profileSig(p: Profile) {
   const live = (p.liveGames || []).map((g) => g.id).join(",");
   const done = p.games.map((g) => `${g.id}:${g.result || ""}`).join(",");
-  return `${live}|${done}|${p.wins}|${p.losses}|${p.draws}`;
+  return `${live}|${done}|${p.wins}|${p.losses}|${p.draws}|${p.rating ?? ""}|${p.ratingBullet}|${p.ratingBlitz}|${p.ratingRapid}|${p.gamesBullet}|${p.gamesBlitz}|${p.gamesRapid}`;
 }
 
 export default function ProfilePage() {
@@ -117,12 +133,42 @@ export default function ProfilePage() {
             )}
           </div>
           {!profile.hideStats ? (
-            <p className="mt-2 ui text-sm muted m-0">
-              {profile.wins}W {profile.losses}L {profile.draws}D
-              {profile.createdAt
-                ? ` · joined ${new Date(profile.createdAt).toLocaleDateString()}`
-                : ""}
-            </p>
+            <div className="mt-2 ui text-sm muted space-y-1">
+              <p className="m-0">
+                {profile.wins}W {profile.losses}L {profile.draws}D
+                {typeof profile.ratedGames === "number" ? ` · ${profile.ratedGames} rated` : ""}
+                {profile.createdAt
+                  ? ` · joined ${new Date(profile.createdAt).toLocaleDateString()}`
+                  : ""}
+              </p>
+              <p className="m-0 flex flex-wrap gap-x-3 gap-y-1">
+                <span title="Bullet rating">
+                  Bullet{" "}
+                  <strong className="text-[var(--ink)]">
+                    {formatClubRating(
+                      pool(profile.ratingBullet ?? 1200, profile.rdBullet ?? 350, profile.gamesBullet ?? 0)
+                    )}
+                  </strong>
+                </span>
+                <span title="Blitz rating">
+                  Blitz{" "}
+                  <strong className="text-[var(--ink)]">
+                    {formatClubRating(
+                      pool(profile.ratingBlitz ?? 1200, profile.rdBlitz ?? 350, profile.gamesBlitz ?? 0)
+                    )}
+                  </strong>
+                </span>
+                <span title="Rapid rating">
+                  Rapid{" "}
+                  <strong className="text-[var(--ink)]">
+                    {formatClubRating(
+                      pool(profile.ratingRapid ?? 1200, profile.rdRapid ?? 350, profile.gamesRapid ?? 0)
+                    )}
+                  </strong>
+                </span>
+              </p>
+              <p className="m-0 text-xs">? means provisional (few games or high uncertainty)</p>
+            </div>
           ) : null}
           {error && <p className="text-[var(--danger)] ui text-xs mt-2 mb-0">{error}</p>}
         </div>

@@ -46,6 +46,19 @@ model User {
   wins          Int       @default(0)
   losses        Int       @default(0)
   draws         Int       @default(0)
+  /** Overall / ladder rating (derived from most-played pool). */
+  rating        Int       @default(1200)
+  ratedGames    Int       @default(0)
+  /** Per-pool Glicko (chess.com-style bullet / blitz / rapid). */
+  ratingBullet  Int       @default(1200)
+  rdBullet      Int       @default(350)
+  gamesBullet   Int       @default(0)
+  ratingBlitz   Int       @default(1200)
+  rdBlitz       Int       @default(350)
+  gamesBlitz    Int       @default(0)
+  ratingRapid   Int       @default(1200)
+  rdRapid       Int       @default(350)
+  gamesRapid    Int       @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   banned        Boolean   @default(false)
@@ -145,6 +158,13 @@ model Tournament {
   maxRounds   Int              @default(4)
   currentRound Int             @default(0)
   maxPlayers  Int              @default(32)
+  /** Private = invite whitelist only (host always allowed). */
+  isPrivate       Boolean @default(false)
+  /** JSON string array of usernames allowed to join when private. */
+  inviteUsernames String  @default("[]")
+  /** Optional Elo gates (null = no limit). */
+  minRating       Int?
+  maxRating       Int?
   createdAt   DateTime         @default(now())
   startedAt   DateTime?
   endedAt     DateTime?

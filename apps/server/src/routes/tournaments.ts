@@ -3,6 +3,21 @@ import { prisma } from "@chess/db";
 import { TIME_CONTROLS, canHostTournament, type Role, type TimeControlId } from "@chess/shared";
 import { requireUser, type AuthedRequest } from "../middleware";
 import { param } from "../params";
+import { ratingPoolFromTimeControl, type RatingPool } from "@chess/shared";
+import { invitesInclude, parseInviteUsernames } from "../invites";
+
+function poolRating(
+  u: {
+    ratingBullet: number;
+    ratingBlitz: number;
+    ratingRapid: number;
+  },
+  pool: RatingPool
+) {
+  if (pool === "bullet") return u.ratingBullet;
+  if (pool === "rapid") return u.ratingRapid;
+  return u.ratingBlitz;
+}
 
 type PlayerRow = {
   userId: string;
@@ -44,7 +59,6 @@ function swissPair(
     let idx = remaining.findIndex((b) => !pairedBefore(a, b, history));
     if (idx < 0) idx = 0;
     const b = remaining.splice(idx, 1)[0];
-    // Alternate colors loosely by prior white count in history
     const aWasWhite = history.filter((g) => g.whiteId === a).length;
     const bWasWhite = history.filter((g) => g.whiteId === b).length;
     if (aWasWhite <= bWasWhite) pairs.push({ whiteId: a, blackId: b });
@@ -52,6 +66,15 @@ function swissPair(
   }
 
   return { pairs, byeUserId };
+}
+
+function parseRatingBound(raw: unknown, fallback: number | null): number | null {
+  if (raw === null || raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  const rounded = Math.round(n);
+  if (rounded < 100 || rounded > 3200) return fallback;
+  return rounded;
 }
 
 export function createTournamentsRouter() {
@@ -66,7 +89,14 @@ export function createTournamentsRouter() {
         _count: { select: { players: true, games: true } },
       },
     });
-    res.json(list);
+    res.json(
+      list.map((t) => ({
+        ...t,
+        inviteCount: parseInviteUsernames(t.inviteUsernames).length,
+        // Never leak whitelist on the public list
+        inviteUsernames: undefined,
+      }))
+    );
   });
 
   router.get("/:id", async (req, res) => {
@@ -76,7 +106,26 @@ export function createTournamentsRouter() {
         host: { select: { id: true, username: true, role: true } },
         players: {
           orderBy: [{ score: "desc" }, { joinedAt: "asc" }],
-          include: { user: { select: { id: true, username: true, role: true, image: true } } },
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                role: true,
+                image: true,
+                rating: true,
+                ratingBullet: true,
+                ratingBlitz: true,
+                ratingRapid: true,
+                gamesBullet: true,
+                gamesBlitz: true,
+                gamesRapid: true,
+                rdBullet: true,
+                rdBlitz: true,
+                rdRapid: true,
+              },
+            },
+          },
         },
         games: {
           orderBy: [{ tournamentRound: "asc" }, { createdAt: "asc" }],
@@ -88,7 +137,17 @@ export function createTournamentsRouter() {
       },
     });
     if (!t) return res.status(404).json({ error: "Not found" });
-    res.json(t);
+
+    const viewerId = String(req.headers["x-user-id"] || "");
+    const isHost = !!viewerId && viewerId === t.hostId;
+    const invites = parseInviteUsernames(t.inviteUsernames);
+
+    res.json({
+      ...t,
+      inviteCount: invites.length,
+      invites: isHost ? invites : undefined,
+      inviteUsernames: undefined,
+    });
   });
 
   router.post("/", requireUser, async (req: AuthedRequest, res) => {
@@ -107,6 +166,13 @@ export function createTournamentsRouter() {
     const tc = TIME_CONTROLS.find((t) => t.id === tcId) || TIME_CONTROLS[1];
     const maxRounds = Math.min(9, Math.max(1, Number(req.body?.maxRounds) || 4));
     const maxPlayers = Math.min(64, Math.max(2, Number(req.body?.maxPlayers) || 32));
+    const isPrivate = Boolean(req.body?.isPrivate);
+    const invites = parseInviteUsernames(req.body?.invites ?? req.body?.inviteUsernames);
+    const minRating = parseRatingBound(req.body?.minRating, null);
+    const maxRating = parseRatingBound(req.body?.maxRating, null);
+    if (minRating != null && maxRating != null && minRating > maxRating) {
+      return res.status(400).json({ error: "Min Elo cannot exceed max Elo" });
+    }
 
     const tournament = await prisma.tournament.create({
       data: {
@@ -118,6 +184,10 @@ export function createTournamentsRouter() {
         incrementMs: tc.incrementMs,
         maxRounds,
         maxPlayers,
+        isPrivate,
+        inviteUsernames: JSON.stringify(invites),
+        minRating,
+        maxRating,
         status: "OPEN",
         players: { create: { userId: user.id } },
       },
@@ -129,6 +199,52 @@ export function createTournamentsRouter() {
     res.status(201).json(tournament);
   });
 
+  /** Host can update privacy / invites / Elo gates while OPEN. */
+  router.patch("/:id", requireUser, async (req: AuthedRequest, res) => {
+    const id = param(req, "id");
+    const t = await prisma.tournament.findUnique({ where: { id } });
+    if (!t) return res.status(404).json({ error: "Not found" });
+    if (t.hostId !== req.user!.id) return res.status(403).json({ error: "Host only" });
+    if (t.status !== "OPEN") {
+      return res.status(400).json({ error: "Can only edit settings before start" });
+    }
+
+    const data: {
+      isPrivate?: boolean;
+      inviteUsernames?: string;
+      minRating?: number | null;
+      maxRating?: number | null;
+      description?: string;
+    } = {};
+
+    if (typeof req.body?.isPrivate === "boolean") data.isPrivate = req.body.isPrivate;
+    if (req.body?.invites !== undefined || req.body?.inviteUsernames !== undefined) {
+      data.inviteUsernames = JSON.stringify(
+        parseInviteUsernames(req.body?.invites ?? req.body?.inviteUsernames)
+      );
+    }
+    if ("minRating" in (req.body || {})) data.minRating = parseRatingBound(req.body.minRating, null);
+    if ("maxRating" in (req.body || {})) data.maxRating = parseRatingBound(req.body.maxRating, null);
+    if (typeof req.body?.description === "string") {
+      data.description = req.body.description.trim().slice(0, 500);
+    }
+
+    const nextMin = data.minRating !== undefined ? data.minRating : t.minRating;
+    const nextMax = data.maxRating !== undefined ? data.maxRating : t.maxRating;
+    if (nextMin != null && nextMax != null && nextMin > nextMax) {
+      return res.status(400).json({ error: "Min Elo cannot exceed max Elo" });
+    }
+
+    const updated = await prisma.tournament.update({ where: { id }, data });
+    const invites = parseInviteUsernames(updated.inviteUsernames);
+    res.json({
+      ...updated,
+      invites,
+      inviteCount: invites.length,
+      inviteUsernames: undefined,
+    });
+  });
+
   router.post("/:id/join", requireUser, async (req: AuthedRequest, res) => {
     const id = param(req, "id");
     const t = await prisma.tournament.findUnique({
@@ -138,6 +254,38 @@ export function createTournamentsRouter() {
     if (!t) return res.status(404).json({ error: "Not found" });
     if (t.status !== "OPEN") return res.status(400).json({ error: "Not open for joining" });
     if (t._count.players >= t.maxPlayers) return res.status(400).json({ error: "Tournament full" });
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: {
+        id: true,
+        username: true,
+        ratingBullet: true,
+        ratingBlitz: true,
+        ratingRapid: true,
+      },
+    });
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+    if (t.isPrivate && t.hostId !== user.id) {
+      const invites = parseInviteUsernames(t.inviteUsernames);
+      if (!invitesInclude(invites, user.username)) {
+        return res.status(403).json({ error: "This event is invite-only" });
+      }
+    }
+
+    const pool = ratingPoolFromTimeControl(t.timeControl);
+    const rating = poolRating(user, pool);
+    if (t.minRating != null && rating < t.minRating) {
+      return res.status(403).json({
+        error: `${pool} rating ${rating} is below the minimum (${t.minRating})`,
+      });
+    }
+    if (t.maxRating != null && rating > t.maxRating) {
+      return res.status(403).json({
+        error: `${pool} rating ${rating} is above the maximum (${t.maxRating})`,
+      });
+    }
 
     await prisma.tournamentPlayer.upsert({
       where: { tournamentId_userId: { tournamentId: id, userId: req.user!.id } },

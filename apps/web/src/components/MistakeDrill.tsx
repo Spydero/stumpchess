@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Chess, type Square } from "chess.js";
 import { Chessboard } from "react-chessboard";
 import type { Arrow } from "react-chessboard/dist/chessboard/types";
@@ -20,6 +20,8 @@ const DARK_SQ = { backgroundColor: "var(--board-dark)" } as const;
 const LIGHT_SQ = { backgroundColor: "var(--board-light)" } as const;
 
 type Result = "idle" | "correct" | "wrong";
+/** replay = show the bad move first; solve = find a better one */
+type Phase = "replay" | "solve";
 
 function normalizeUci(uci: string) {
   return uci.trim().toLowerCase();
@@ -30,7 +32,6 @@ function playedUciMatchesBest(played: string, best?: string) {
   const a = normalizeUci(played);
   const b = normalizeUci(best);
   if (a === b) return true;
-  // Allow queen-default promo match when engine omitted promo or user picked q
   if (a.length === 5 && b.length === 4 && a.slice(0, 4) === b) return a[4] === "q";
   if (a.length === 4 && b.length === 5 && a === b.slice(0, 4) && b[4] === "q") return true;
   return false;
@@ -46,6 +47,17 @@ function safeFen(fen: string | undefined) {
   }
 }
 
+function applySan(fen: string, san: string) {
+  try {
+    const c = new Chess(fen);
+    const m = c.move(san);
+    if (!m) return null;
+    return { fen: c.fen(), from: m.from as Square, to: m.to as Square };
+  } catch {
+    return null;
+  }
+}
+
 export function MistakeDrill({
   drills,
   onDone,
@@ -54,19 +66,20 @@ export function MistakeDrill({
   onDone?: () => void;
 }) {
   const [idx, setIdx] = useState(0);
+  const [phase, setPhase] = useState<Phase>("replay");
   const [fen, setFen] = useState(() => safeFen(drills[0]?.fenBefore));
   const [result, setResult] = useState<Result>("idle");
   const [showBest, setShowBest] = useState(false);
   const [solved, setSolved] = useState(0);
   const [missed, setMissed] = useState(0);
   const [attempts, setAttempts] = useState(0);
-  /** Once true, this drill already counted as solved or missed. */
   const scoredRef = useRef(false);
   const chessRef = useRef(new Chess(safeFen(drills[0]?.fenBefore)));
   const [selected, setSelected] = useState<Square | null>(null);
   const [optionSquares, setOptionSquares] = useState<Record<string, React.CSSProperties>>({});
   const [promo, setPromo] = useState<{ from: Square; to: Square } | null>(null);
   const [lastTry, setLastTry] = useState<{ from: Square; to: Square } | null>(null);
+  const [mistakeSq, setMistakeSq] = useState<{ from: Square; to: Square } | null>(null);
 
   const drill = drills[idx];
   const done = idx >= drills.length;
@@ -78,6 +91,25 @@ export function MistakeDrill({
     return { from: m.from as Square, to: m.to as Square };
   }, [drill]);
 
+  const clearSelection = useCallback(() => {
+    setSelected(null);
+    setOptionSquares({});
+  }, []);
+
+  const beginSolve = useCallback(() => {
+    if (!drill) return;
+    const f = safeFen(drill.fenBefore);
+    chessRef.current = new Chess(f);
+    setFen(f);
+    setPhase("solve");
+    setResult("idle");
+    setShowBest(false);
+    setMistakeSq(null);
+    setLastTry(null);
+    setPromo(null);
+    clearSelection();
+  }, [drill, clearSelection]);
+
   const loadDrill = useCallback(
     (i: number) => {
       const d = drills[i];
@@ -85,26 +117,54 @@ export function MistakeDrill({
         setIdx(i);
         return;
       }
-      const f = safeFen(d.fenBefore);
-      chessRef.current = new Chess(f);
+      const before = safeFen(d.fenBefore);
+      chessRef.current = new Chess(before);
       scoredRef.current = false;
-      setFen(f);
+      setIdx(i);
+      setPhase("replay");
+      setFen(before);
       setResult("idle");
       setShowBest(false);
       setSelected(null);
       setOptionSquares({});
       setPromo(null);
       setLastTry(null);
+      setMistakeSq(null);
       setAttempts(0);
-      setIdx(i);
     },
     [drills]
   );
 
-  const clearSelection = useCallback(() => {
-    setSelected(null);
-    setOptionSquares({});
-  }, []);
+  // Replay phase: show position before, then play the wrong move so you see what happened.
+  useEffect(() => {
+    if (!drill || phase !== "replay") return;
+    const before = safeFen(drill.fenBefore);
+    chessRef.current = new Chess(before);
+    setFen(before);
+    setMistakeSq(null);
+
+    const t0 = window.setTimeout(() => {
+      const played = applySan(before, drill.san);
+      if (played) {
+        chessRef.current = new Chess(played.fen);
+        setFen(played.fen);
+        setMistakeSq({ from: played.from, to: played.to });
+      } else if (drill.from && drill.to) {
+        // Fallback: jump to fenAfter with stored squares
+        setFen(safeFen(drill.fenAfter));
+        setMistakeSq({ from: drill.from, to: drill.to });
+      }
+    }, 450);
+
+    const t1 = window.setTimeout(() => {
+      beginSolve();
+    }, 2200);
+
+    return () => {
+      window.clearTimeout(t0);
+      window.clearTimeout(t1);
+    };
+  }, [drill, phase, idx, beginSolve]);
 
   const showLegal = useCallback((square: Square) => {
     const moves = chessRef.current.moves({ square, verbose: true });
@@ -129,7 +189,7 @@ export function MistakeDrill({
 
   const tryMove = useCallback(
     (from: string, to: string, promotion?: string) => {
-      if (!drill || result === "correct") return false;
+      if (!drill || phase !== "solve" || result === "correct") return false;
       const chess = new Chess(safeFen(drill.fenBefore));
       chessRef.current = chess;
 
@@ -162,7 +222,6 @@ export function MistakeDrill({
           setSolved((n) => n + 1);
         }
       } else {
-        // Snap back to the puzzle position
         chess.undo();
         chessRef.current = new Chess(safeFen(drill.fenBefore));
         setFen(chessRef.current.fen());
@@ -171,17 +230,27 @@ export function MistakeDrill({
       }
       return true;
     },
-    [drill, result, clearSelection]
+    [drill, phase, result, clearSelection]
   );
 
   const arrows = useMemo((): Arrow[] => {
-    if (!showBest || !bestSquares) return [];
-    return [[bestSquares.from, bestSquares.to, CLASS_META.Best.color]];
-  }, [showBest, bestSquares]);
+    if (phase === "replay" && mistakeSq) {
+      const color = CLASS_META[drill?.classification || "Mistake"]?.color || CLASS_META.Mistake.color;
+      return [[mistakeSq.from, mistakeSq.to, color]];
+    }
+    if (showBest && bestSquares) {
+      return [[bestSquares.from, bestSquares.to, CLASS_META.Best.color]];
+    }
+    return [];
+  }, [phase, mistakeSq, showBest, bestSquares, drill?.classification]);
 
   const squareStyles = useMemo(() => {
     const styles: Record<string, React.CSSProperties> = { ...optionSquares };
-    if (result === "correct" && bestSquares) {
+    if (phase === "replay" && mistakeSq) {
+      const label = drill?.classification || "Mistake";
+      styles[mistakeSq.from] = { background: classificationTint(label, 0.3) };
+      styles[mistakeSq.to] = { background: classificationTint(label, 0.5) };
+    } else if (result === "correct" && bestSquares) {
       styles[bestSquares.from] = { background: classificationTint("Best", 0.32) };
       styles[bestSquares.to] = { background: classificationTint("Best", 0.52) };
     } else if (result === "wrong" && lastTry) {
@@ -189,10 +258,23 @@ export function MistakeDrill({
       styles[lastTry.to] = { background: classificationTint("Mistake", 0.42) };
     }
     return styles;
-  }, [optionSquares, result, bestSquares, lastTry]);
+  }, [optionSquares, phase, mistakeSq, result, bestSquares, lastTry, drill?.classification]);
 
-  const markerTarget = result === "correct" && bestSquares ? bestSquares.to : null;
+  const markerTarget =
+    phase === "replay" && mistakeSq
+      ? mistakeSq.to
+      : result === "correct" && bestSquares
+        ? bestSquares.to
+        : null;
+  const markerLabel =
+    phase === "replay" && mistakeSq
+      ? drill?.classification || "Mistake"
+      : result === "correct"
+        ? "Best"
+        : null;
+
   const orientation = drill?.color === "b" ? "black" : "white";
+  const canInteract = phase === "solve" && result !== "correct" && !promo;
 
   if (done) {
     return (
@@ -229,14 +311,14 @@ export function MistakeDrill({
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(260px,1fr)_minmax(240px,300px)] rise-in">
       <div>
-        <ClassificationSquareProvider target={markerTarget} label={markerTarget ? "Best" : null}>
+        <ClassificationSquareProvider target={markerTarget} label={markerLabel}>
           <Chessboard
             position={fen}
             boardOrientation={orientation}
-            arePiecesDraggable={result !== "correct" && !promo}
+            arePiecesDraggable={canInteract}
             onPieceDrop={(from, to) => tryMove(from, to)}
             onSquareClick={(sq) => {
-              if (result === "correct" || promo) return;
+              if (!canInteract) return;
               if (selected) {
                 if (selected === sq) {
                   clearSelection();
@@ -258,7 +340,7 @@ export function MistakeDrill({
             customBoardStyle={BOARD_STYLE}
             customDarkSquareStyle={DARK_SQ}
             customLightSquareStyle={LIGHT_SQ}
-            animationDuration={120}
+            animationDuration={180}
           />
         </ClassificationSquareProvider>
 
@@ -291,10 +373,19 @@ export function MistakeDrill({
             <MoveBadge label={drill.classification} />
             <span className="ui text-sm muted">{drill.cpl} cp loss in the game</span>
           </div>
-          <p className="ui text-sm m-0">
-            In the game you played <strong>{drill.san}</strong>. Find a better move
-            {drill.color === "w" ? " (White)" : " (Black)"}.
-          </p>
+
+          {phase === "replay" ? (
+            <p className="ui text-sm m-0">
+              In the game you played <strong>{drill.san}</strong>
+              {drill.color === "w" ? " (White)" : " (Black)"}. Watching the mistake…
+            </p>
+          ) : (
+            <p className="ui text-sm m-0">
+              You played <strong>{drill.san}</strong>. Now find a better move
+              {drill.color === "w" ? " (White)" : " (Black)"}.
+            </p>
+          )}
+
           {result === "correct" && (
             <p className="ui text-sm m-0" style={{ color: CLASS_META.Best.color }}>
               Correct{drill.bestSan ? `: ${drill.bestSan}` : "."}
@@ -308,7 +399,11 @@ export function MistakeDrill({
         </div>
 
         <div className="panel p-4 flex flex-wrap gap-2">
-          {result === "correct" ? (
+          {phase === "replay" ? (
+            <button type="button" className="btn btn-accent" onClick={beginSolve}>
+              Fix it
+            </button>
+          ) : result === "correct" ? (
             <button type="button" className="btn btn-accent" onClick={() => loadDrill(idx + 1)}>
               {idx + 1 >= drills.length ? "Finish" : "Next"}
             </button>
@@ -321,7 +416,6 @@ export function MistakeDrill({
                   setShowBest(true);
                   setResult("wrong");
                   markMissedOnce();
-                  // Reset board to puzzle fen so the arrow is clear
                   chessRef.current = new Chess(safeFen(drill.fenBefore));
                   setFen(chessRef.current.fen());
                   setLastTry(null);
@@ -339,6 +433,9 @@ export function MistakeDrill({
                 }}
               >
                 Skip
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => loadDrill(idx)}>
+                Replay mistake
               </button>
             </>
           )}

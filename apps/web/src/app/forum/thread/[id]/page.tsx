@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { canModerateForum, type Role } from "@chess/shared";
 import { apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/auth-client";
 import { RoleBadge } from "@/components/RoleBadge";
@@ -12,7 +13,9 @@ import { formatRelativeTime } from "@/lib/time";
 type Post = {
   id: string;
   body: string;
+  authorId: string;
   createdAt: string;
+  updatedAt: string;
   author: { username: string; role: string; image?: string | null };
 };
 
@@ -43,6 +46,12 @@ function postAccent(role: string) {
   }
 }
 
+function wasEdited(p: Post) {
+  const created = new Date(p.createdAt).getTime();
+  const updated = new Date(p.updatedAt).getTime();
+  return updated - created > 2000;
+}
+
 export default function ThreadPage() {
   const { id } = useParams<{ id: string }>();
   const { data } = useSession();
@@ -52,6 +61,12 @@ export default function ThreadPage() {
   const [replyBody, setReplyBody] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editBody, setEditBody] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const isStaff = !!user?.role && canModerateForum(user.role as Role);
 
   function load() {
     apiFetch(`/api/forum/threads/${id}`).then(setThread).catch(() => setThread(null));
@@ -79,8 +94,59 @@ export default function ThreadPage() {
     }
   }
 
-  const chars = replyBody.trim().length;
+  function startEdit(p: Post) {
+    setEditingId(p.id);
+    setEditBody(p.body);
+    setError("");
+  }
 
+  function cancelEdit() {
+    setEditingId(null);
+    setEditBody("");
+  }
+
+  async function saveEdit(postId: string) {
+    if (!user || !editBody.trim()) return;
+    setSavingEdit(true);
+    setError("");
+    try {
+      await apiFetch(`/api/forum/posts/${postId}`, {
+        method: "PATCH",
+        userId: user.id,
+        body: JSON.stringify({ body: editBody }),
+      });
+      cancelEdit();
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save edit");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function deletePost(postId: string) {
+    if (!user || !isStaff) return;
+    if (!window.confirm("Delete this post? This cannot be undone.")) return;
+    setDeletingId(postId);
+    setError("");
+    try {
+      const res = await apiFetch(`/api/forum/posts/${postId}`, {
+        method: "DELETE",
+        userId: user.id,
+      });
+      if (res?.threadDeleted) {
+        router.push(thread ? `/forum/${thread.category.slug}` : "/forum");
+        return;
+      }
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  const chars = replyBody.trim().length;
   const sortedPosts = useMemo(() => thread?.posts || [], [thread]);
 
   if (!thread) {
@@ -107,41 +173,106 @@ export default function ThreadPage() {
         <h1 className="text-3xl m-0">{thread.title}</h1>
       </header>
 
+      {error && <p className="text-[var(--danger)] ui text-sm mb-3">{error}</p>}
+
       <div className="space-y-3 mb-6">
-        {sortedPosts.map((p, i) => (
-          <article
-            key={p.id}
-            className={`panel forum-post rise-in ${i === 0 ? "" : `rise-in-delay-${Math.min(3, (i % 3) + 1)}`}`}
-            style={{ ["--post-accent" as string]: postAccent(p.author.role) }}
-          >
-            <UserAvatar
-              username={p.author.username}
-              image={p.author.image}
-              role={p.author.role}
-              size={42}
-            />
-            <div className="min-w-0">
-              <header className="flex flex-wrap items-center gap-2 mb-2 ui text-sm">
-                <Link
-                  href={`/u/${p.author.username}`}
-                  className="font-semibold hover:text-[var(--accent)] transition-colors"
-                >
-                  {p.author.username}
-                </Link>
-                {p.author.role !== "MEMBER" && <RoleBadge role={p.author.role} />}
-                {i === 0 && <span className="forum-chip">OP</span>}
-                <time
-                  className="muted text-xs ml-auto"
-                  dateTime={p.createdAt}
-                  title={new Date(p.createdAt).toLocaleString()}
-                >
-                  {formatRelativeTime(p.createdAt)}
-                </time>
-              </header>
-              <p className="forum-post-body">{p.body}</p>
-            </div>
-          </article>
-        ))}
+        {sortedPosts.map((p, i) => {
+          const isAuthor = !!user && p.authorId === user.id;
+          const canEdit = (isAuthor || isStaff) && (!thread.locked || isStaff);
+          const editing = editingId === p.id;
+
+          return (
+            <article
+              key={p.id}
+              className={`panel forum-post rise-in ${i === 0 ? "" : `rise-in-delay-${Math.min(3, (i % 3) + 1)}`}`}
+              style={{ ["--post-accent" as string]: postAccent(p.author.role) }}
+            >
+              <UserAvatar
+                username={p.author.username}
+                image={p.author.image}
+                role={p.author.role}
+                size={42}
+              />
+              <div className="min-w-0">
+                <header className="flex flex-wrap items-center gap-2 mb-2 ui text-sm">
+                  <Link
+                    href={`/u/${p.author.username}`}
+                    className="font-semibold hover:text-[var(--accent)] transition-colors"
+                  >
+                    {p.author.username}
+                  </Link>
+                  {p.author.role !== "MEMBER" && <RoleBadge role={p.author.role} />}
+                  {i === 0 && <span className="forum-chip">OP</span>}
+                  <time
+                    className="muted text-xs ml-auto"
+                    dateTime={p.createdAt}
+                    title={new Date(p.createdAt).toLocaleString()}
+                  >
+                    {formatRelativeTime(p.createdAt)}
+                    {wasEdited(p) ? " · edited" : ""}
+                  </time>
+                </header>
+
+                {editing ? (
+                  <div className="space-y-2">
+                    <textarea
+                      className="input min-h-28"
+                      value={editBody}
+                      onChange={(e) => setEditBody(e.target.value)}
+                      disabled={savingEdit}
+                      maxLength={10000}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-accent !py-1.5 !px-3 !text-sm"
+                        disabled={savingEdit || !editBody.trim()}
+                        onClick={() => void saveEdit(p.id)}
+                      >
+                        {savingEdit ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost !py-1.5 !px-3 !text-sm"
+                        disabled={savingEdit}
+                        onClick={cancelEdit}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="forum-post-body">{p.body}</p>
+                    {(canEdit || isStaff) && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {canEdit && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost !py-1 !px-2 !text-xs"
+                            onClick={() => startEdit(p)}
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {isStaff && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost !py-1 !px-2 !text-xs text-[var(--danger)]"
+                            disabled={deletingId === p.id}
+                            onClick={() => void deletePost(p.id)}
+                          >
+                            {deletingId === p.id ? "Deleting…" : "Delete"}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </article>
+          );
+        })}
       </div>
 
       {!thread.locked ? (
@@ -187,7 +318,6 @@ export default function ThreadPage() {
               )}
             </div>
           </div>
-          {error && <p className="text-[var(--danger)] ui text-sm m-0">{error}</p>}
         </form>
       ) : (
         <div className="panel forum-empty">

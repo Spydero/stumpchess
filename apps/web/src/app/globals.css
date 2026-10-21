@@ -26,12 +26,12 @@
   /* Role colors: readable on cream panels */
   --role-member: #5c564e;
   --role-thost: #2f6f5e;
-  --role-vip30: #9a6b00;
-  --role-vip: #8a5a00;
+  --role-vip30: #b8860b;
+  --role-vip: #c9a227;
   --role-sta: #b42318;
   --role-lta: #1d4ed8;
   --role-manager: #7c3aed;
-  --role-owner: #1a1612;
+  --role-owner: #2f6f5e;
 }
 
 [data-theme="dark"] {
@@ -62,7 +62,7 @@
   --role-sta: #ff7a6a;
   --role-lta: #6ec1ff;
   --role-manager: #d8a6ff;
-  --role-owner: #ffe08a;
+  --role-owner: #6fa887;
 }
 
 * {
@@ -261,12 +261,12 @@ h3 {
   display: inline-flex;
   align-items: center;
   font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  padding: 0.18rem 0.45rem;
-  line-height: 1.15;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  padding: 0.2rem 0.5rem;
+  line-height: 1.2;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--role-fg) 55%, transparent);
   color: var(--role-fg);

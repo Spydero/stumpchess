@@ -15,6 +15,7 @@ import { createAdminRouter } from "./routes/admin";
 import { createMessagesRouter } from "./routes/messages";
 import { createTournamentsRouter } from "./routes/tournaments";
 import { applyTournamentGameResult } from "./tournament-score";
+import { applyRatedGameResult } from "./elo";
 import { Matchmaking } from "./matchmaking";
 
 dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
@@ -170,15 +171,14 @@ io.on("connection", (socket) => {
         },
       });
 
-      if (ended && winnerId) {
-        await prisma.user.update({ where: { id: winnerId }, data: { wins: { increment: 1 } } });
-        const loserId = winnerId === game.whiteId ? game.blackId : game.whiteId;
-        if (loserId) {
-          await prisma.user.update({ where: { id: loserId }, data: { losses: { increment: 1 } } });
-        }
-      } else if (ended && result === "1/2-1/2") {
-        if (game.whiteId) await prisma.user.update({ where: { id: game.whiteId }, data: { draws: { increment: 1 } } });
-        if (game.blackId) await prisma.user.update({ where: { id: game.blackId }, data: { draws: { increment: 1 } } });
+      if (ended && result) {
+        await applyRatedGameResult({
+          whiteId: game.whiteId,
+          blackId: game.blackId,
+          result,
+          timeControl: game.timeControl,
+          isBot: game.isBot,
+        });
       }
 
       if (ended && result && game.tournamentId) {
@@ -265,10 +265,13 @@ io.on("connection", (socket) => {
       where: { id: game.id },
       data: { status: "FINISHED", result, winnerId: winnerId ?? undefined, endedAt: new Date() },
     });
-    if (winnerId) {
-      await prisma.user.update({ where: { id: winnerId }, data: { wins: { increment: 1 } } });
-      await prisma.user.update({ where: { id: meta.userId }, data: { losses: { increment: 1 } } });
-    }
+    await applyRatedGameResult({
+      whiteId: game.whiteId,
+      blackId: game.blackId,
+      result,
+      timeControl: game.timeControl,
+      isBot: game.isBot,
+    });
     if (game.tournamentId) {
       await applyTournamentGameResult({
         gameId: game.id,

@@ -6,6 +6,7 @@ import { requireUser, type AuthedRequest } from "../middleware";
 import { param } from "../params";
 import { purgeExpiredGames } from "../purge";
 import { applyTournamentGameResult } from "../tournament-score";
+import { applyRatedGameResult } from "../elo";
 
 export function createGamesRouter() {
   const router = Router();
@@ -295,16 +296,13 @@ export function createGamesRouter() {
       },
     });
 
-    if (!game.isBot) {
-      if (winnerId) {
-        await prisma.user.update({ where: { id: winnerId }, data: { wins: { increment: 1 } } });
-        const loserId = winnerId === game.whiteId ? game.blackId : game.whiteId;
-        if (loserId) await prisma.user.update({ where: { id: loserId }, data: { losses: { increment: 1 } } });
-      } else {
-        if (game.whiteId) await prisma.user.update({ where: { id: game.whiteId }, data: { draws: { increment: 1 } } });
-        if (game.blackId) await prisma.user.update({ where: { id: game.blackId }, data: { draws: { increment: 1 } } });
-      }
-    }
+    await applyRatedGameResult({
+      whiteId: game.whiteId,
+      blackId: game.blackId,
+      result,
+      timeControl: game.timeControl,
+      isBot: game.isBot,
+    });
 
     if (game.tournamentId) {
       await applyTournamentGameResult({

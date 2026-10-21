@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useSession } from "@/lib/auth-client";
 import { apiFetch } from "@/lib/api";
 import { RoleBadge } from "@/components/RoleBadge";
+import { roleLabel } from "@/lib/roles";
 import type { Role } from "@chess/shared";
 
 type AdminUser = {
@@ -94,13 +95,7 @@ export default function AdminPage() {
           <select className="input" name="role" defaultValue="VIP_30">
             {ROLE_OPTIONS.map((r) => (
               <option key={r} value={r}>
-                {r === "VIP_30"
-                  ? "VIP (30 days)"
-                  : r === "VIP_PERM"
-                    ? "VIP (Permanent)"
-                    : r === "TOURNAMENT_HOST"
-                      ? "Tournament Host"
-                      : r}
+                {roleLabel(r)}
               </option>
             ))}
           </select>
