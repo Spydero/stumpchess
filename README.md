@@ -44,20 +44,9 @@ Then in another terminal (with web running):
 
 ### Screenshots
 
-See [`docs/screenshots/`](docs/screenshots/):
+See [`docs/screenshots/`](docs/screenshots/) for full-page desktop captures (1440×900 viewport, `fullPage`) of every main route: home, auth, play, watch, tournaments, openings, practice (+ coach / mistakes), games, live board, analysis, forum (+ category / thread), messages, leaders, search, settings, admin, and Owner profile.
 
-| File | Page |
-|------|------|
-| `01-home.png` | Home |
-| `02-login.png` | Login |
-| `03-play.png` | Play |
-| `04-analysis-vip.png` | Game Review |
-| `05-forum.png` | Forum |
-| `06-owner-profile.png` | Owner profile (`/u/jOjo`) |
-| `07-admin.png` | Admin (open vs VIP-only features) |
-| `08-practice.png` | Practice |
-
-Regenerate at desktop size (1440×900) with web running:
+Regenerate (clears old PNGs in that folder first):
 
 ```bash
 pnpm exec playwright install chromium   # once
