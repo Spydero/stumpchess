@@ -157,46 +157,39 @@ export default function AnalysisPage() {
     return moves[Math.min(idx, moves.length - 1)]?.fenAfter || "start";
   }, [moves, idx]);
 
-  if (isPending) return <p className="pulse-soft">Loading…</p>;
+  if (isPending) return <p className="pulse-soft ui muted">Loading…</p>;
   if (!user) {
     return (
-      <div className="panel p-6">
-        <p>
-          <Link href="/login" className="underline">
+      <div className="panel p-5">
+        <p className="ui">
+          <Link href="/login" className="link-accent">
             Login
           </Link>{" "}
-          required.
+          to use analysis.
         </p>
       </div>
     );
   }
   if (allowed === false) {
     return (
-      <div className="panel p-8 rise max-w-xl">
-        <h1 className="text-3xl mb-3">VIP Analysis</h1>
-        <p className="text-[var(--muted)] mb-4">
-          Full engine analysis (best moves, brilliancies, mistakes) is limited to{" "}
-          <strong>VIP (30 days)</strong> and <strong>VIP (Permanent)</strong>. Ask an admin — no
-          payments on the site.
-        </p>
-        <p className="text-sm font-[family-name:var(--font-mono)] text-[var(--muted)]">
-          When enabled, Stockfish runs entirely in your browser.
+      <div className="panel p-6 max-w-lg">
+        <h1 className="text-3xl mb-3">Analysis</h1>
+        <p className="muted ui">
+          Full game analysis is available for VIP members. Ask a site admin to enable it on your
+          account.
         </p>
       </div>
     );
   }
-  if (allowed === null) return <p className="pulse-soft">Checking VIP…</p>;
+  if (allowed === null) return <p className="pulse-soft ui muted">Loading…</p>;
 
   const current = moves[idx];
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-      <section className="rise">
-        <h1 className="text-3xl mb-2">Analysis</h1>
-        <p className="text-sm text-[var(--muted)] mb-4 font-[family-name:var(--font-mono)]">
-          Engine on your device · VIP
-        </p>
-        <div className="max-w-[480px]">
+    <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <section>
+        <h1 className="text-3xl mb-4">Analysis</h1>
+        <div className="max-w-[min(100%,480px)]">
           <Chessboard
             position={position}
             arePiecesDraggable={false}
@@ -205,20 +198,24 @@ export default function AnalysisPage() {
           />
         </div>
         {current && (
-          <p className="mt-3 font-[family-name:var(--font-mono)] text-sm">
-            <span style={{ color: LABEL_COLOR[current.classification] }}>
+          <p className="mt-3 ui text-sm">
+            <span style={{ color: LABEL_COLOR[current.classification] }} className="font-semibold">
               {current.classification}
-            </span>{" "}
-            · {current.san} · CPL {current.cpl}
-            {current.bestMove ? ` · best ${current.bestMove}` : ""}
+            </span>
+            <span className="muted">
+              {" "}
+              {current.san} ({current.cpl} cpl)
+              {current.bestMove ? ` best ${current.bestMove}` : ""}
+            </span>
           </p>
         )}
         {moves.length > 0 && (
           <div className="flex gap-2 mt-3">
-            <button className="btn btn-ghost" onClick={() => setIdx((i) => Math.max(0, i - 1))}>
+            <button type="button" className="btn btn-ghost" onClick={() => setIdx((i) => Math.max(0, i - 1))}>
               Prev
             </button>
             <button
+              type="button"
               className="btn btn-ghost"
               onClick={() => setIdx((i) => Math.min(moves.length - 1, i + 1))}
             >
@@ -228,21 +225,27 @@ export default function AnalysisPage() {
         )}
       </section>
 
-      <aside className="panel p-4 rise h-fit space-y-3" style={{ animationDelay: "80ms" }}>
+      <aside className="panel p-4 h-fit space-y-3">
         <textarea
-          className="input min-h-40 font-[family-name:var(--font-mono)] text-xs"
-          placeholder="Paste PGN here…"
+          className="input min-h-40 ui text-xs"
+          placeholder="Paste PGN"
           value={pgn}
           onChange={(e) => setPgn(e.target.value)}
         />
-        <button className="btn btn-accent w-full" disabled={busy || !pgn.trim()} onClick={runAnalysis}>
+        <button
+          type="button"
+          className="btn btn-accent w-full"
+          disabled={busy || !pgn.trim()}
+          onClick={runAnalysis}
+        >
           {busy ? "Analyzing…" : "Analyze"}
         </button>
-        {progress && <p className="text-xs text-[var(--muted)] font-[family-name:var(--font-mono)]">{progress}</p>}
+        {progress && <p className="ui text-xs muted">{progress}</p>}
         <div className="flex flex-wrap gap-1 max-h-64 overflow-auto">
           {moves.map((m, i) => (
             <button
               key={`${m.san}-${i}`}
+              type="button"
               className="badge"
               style={{
                 color: LABEL_COLOR[m.classification],

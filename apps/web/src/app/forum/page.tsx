@@ -20,30 +20,19 @@ export default function ForumPage() {
   }, []);
 
   return (
-    <div className="rise">
-      <h1 className="text-4xl mb-2">Forum</h1>
-      <p className="text-[var(--muted)] mb-8 font-[family-name:var(--font-mono)] text-sm">
-        Old-school boards. Pick a category.
-      </p>
-      <div className="panel divide-y divide-[var(--line)]">
+    <div>
+      <h1 className="text-3xl mb-4">Forum</h1>
+      <div className="panel">
         {categories.map((c) => (
-          <Link
-            key={c.id}
-            href={`/forum/${c.slug}`}
-            className="flex items-start justify-between gap-4 p-4 hover:bg-[rgba(47,111,78,0.06)] transition-colors"
-          >
+          <Link key={c.id} href={`/forum/${c.slug}`} className="table-row">
             <div>
-              <h2 className="text-xl">{c.name}</h2>
-              <p className="text-sm text-[var(--muted)]">{c.description}</p>
+              <h2 className="text-lg m-0">{c.name}</h2>
+              <p className="m-0 mt-1 ui text-sm muted">{c.description}</p>
             </div>
-            <span className="font-[family-name:var(--font-mono)] text-sm text-[var(--muted)] shrink-0">
-              {c._count.threads} threads
-            </span>
+            <span className="ui text-sm muted shrink-0">{c._count.threads}</span>
           </Link>
         ))}
-        {!categories.length && (
-          <p className="p-4 text-[var(--muted)]">No categories yet — run db seed.</p>
-        )}
+        {!categories.length && <p className="p-4 muted ui text-sm">No categories.</p>}
       </div>
     </div>
   );

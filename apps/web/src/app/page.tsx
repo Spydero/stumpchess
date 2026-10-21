@@ -1,49 +1,94 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api";
+
+type RecentGame = {
+  id: string;
+  result: string | null;
+  timeControl: string;
+  white: { username: string } | null;
+  black: { username: string } | null;
+};
 
 export default function HomePage() {
+  const [games, setGames] = useState<RecentGame[]>([]);
+
+  useEffect(() => {
+    apiFetch("/api/games/recent")
+      .then(setGames)
+      .catch(() => setGames([]));
+  }, []);
+
   return (
-    <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr] items-center min-h-[70vh]">
-      <section className="rise">
-        <p className="font-[family-name:var(--font-mono)] text-xs uppercase tracking-[0.2em] text-[var(--muted)] mb-4">
-          lightweight · modern · stump-rooted
-        </p>
-        <h1 className="text-5xl md:text-7xl leading-[0.95] tracking-tight mb-5">
+    <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
+      <section>
+        <h1 className="text-4xl sm:text-5xl mb-3">
           stump<span className="text-[var(--accent)]">chess</span>
         </h1>
-        <p className="max-w-md text-lg text-[var(--muted)] mb-8">
-          Challenge the queue, talk in a classic forum, and — if you&apos;re VIP — run full engine
-          analysis on your machine.
+        <p className="muted ui text-base sm:text-lg max-w-md mb-6">
+          Play online, challenge friends, talk on the forum, and review your games.
         </p>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2">
           <Link href="/play" className="btn btn-accent">
-            Play now
+            Play
+          </Link>
+          <Link href="/play#bot" className="btn btn-ghost">
+            vs Computer
           </Link>
           <Link href="/forum" className="btn btn-ghost">
-            Enter forum
+            Forum
           </Link>
+        </div>
+
+        <div className="mt-8 panel overflow-hidden">
+          <div className="px-4 py-3 border-b border-[var(--line)] flex items-center justify-between">
+            <h2 className="text-lg m-0">Recent games</h2>
+            <Link href="/games" className="ui text-sm link-accent">
+              All
+            </Link>
+          </div>
+          {games.length ? (
+            games.slice(0, 8).map((g) => (
+              <Link key={g.id} href={`/game/${g.id}`} className="table-row ui text-sm">
+                <span>
+                  {g.white?.username || "White"} vs {g.black?.username || "Black"}
+                </span>
+                <span className="muted shrink-0">
+                  {g.timeControl} {g.result || ""}
+                </span>
+              </Link>
+            ))
+          ) : (
+            <p className="p-4 muted ui text-sm">No games yet. Be the first to play.</p>
+          )}
         </div>
       </section>
 
-      <section
-        className="panel rise relative overflow-hidden p-6 min-h-[320px] flex flex-col justify-end"
-        style={{ animationDelay: "120ms" }}
-      >
+      <section className="panel p-3 sm:p-4">
         <div
-          className="absolute inset-0 opacity-90"
+          className="aspect-square w-full rounded-sm border border-[var(--line)]"
           style={{
-            backgroundImage:
-              "linear-gradient(45deg, var(--board-dark) 25%, transparent 25%), linear-gradient(-45deg, var(--board-dark) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, var(--board-dark) 75%), linear-gradient(-45deg, transparent 75%, var(--board-dark) 75%)",
-            backgroundSize: "64px 64px",
-            backgroundPosition: "0 0, 0 32px, 32px -32px, -32px 0",
             backgroundColor: "var(--board-light)",
+            backgroundImage: `
+              linear-gradient(45deg, var(--board-dark) 25%, transparent 25%),
+              linear-gradient(-45deg, var(--board-dark) 25%, transparent 25%),
+              linear-gradient(45deg, transparent 75%, var(--board-dark) 75%),
+              linear-gradient(-45deg, transparent 75%, var(--board-dark) 75%)
+            `,
+            backgroundSize: "12.5% 12.5%",
+            backgroundPosition: "0 0, 0 6.25%, 6.25% -6.25%, -6.25% 0",
           }}
+          aria-hidden
         />
-        <div className="relative z-10 bg-[rgba(28,25,20,0.82)] text-[var(--accent-ink)] p-4">
-          <p className="font-[family-name:var(--font-mono)] text-xs uppercase tracking-widest mb-2">
-            Owner
-          </p>
-          <p className="text-2xl">jOjo</p>
-          <p className="text-sm opacity-80 mt-1">Tree stump. No public stats. Just games.</p>
+        <div className="mt-3 flex gap-2">
+          <Link href="/leaders" className="btn btn-ghost flex-1 !text-sm">
+            Leaders
+          </Link>
+          <Link href="/analysis" className="btn btn-ghost flex-1 !text-sm">
+            Analysis
+          </Link>
         </div>
       </section>
     </div>

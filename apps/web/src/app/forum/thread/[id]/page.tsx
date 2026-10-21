@@ -48,44 +48,43 @@ export default function ThreadPage() {
     load();
   }
 
-  if (!thread) return <p className="pulse-soft">Loading…</p>;
+  if (!thread) return <p className="pulse-soft ui muted">Loading…</p>;
 
   return (
-    <div className="rise max-w-3xl">
-      <Link
-        href={`/forum/${thread.category.slug}`}
-        className="text-sm font-[family-name:var(--font-mono)] text-[var(--muted)]"
-      >
-        ← {thread.category.name}
+    <div className="max-w-3xl">
+      <Link href={`/forum/${thread.category.slug}`} className="ui text-sm link-accent">
+        {thread.category.name}
       </Link>
-      <h1 className="text-3xl mt-2 mb-6">{thread.title}</h1>
+      <h1 className="text-3xl mt-2 mb-5">{thread.title}</h1>
 
-      <div className="space-y-4 mb-8">
+      <div className="space-y-3 mb-6">
         {thread.posts.map((p) => (
           <article key={p.id} className="panel p-4">
-            <header className="flex items-center gap-2 mb-3 text-sm">
+            <header className="flex flex-wrap items-center gap-2 mb-3 ui text-sm">
               {p.author.image && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={p.author.image} alt="" className="w-7 h-7 border border-[var(--line)]" />
               )}
               <strong>{p.author.username}</strong>
-              <RoleBadge role={p.author.role} />
-              <span className="text-[var(--muted)] font-[family-name:var(--font-mono)] text-xs ml-auto">
+              {p.author.role !== "MEMBER" && <RoleBadge role={p.author.role} />}
+              <span className="muted text-xs ml-auto">
                 {new Date(p.createdAt).toLocaleString()}
               </span>
             </header>
-            <p className="whitespace-pre-wrap leading-relaxed">{p.body}</p>
+            <p className="whitespace-pre-wrap leading-relaxed m-0">{p.body}</p>
           </article>
         ))}
       </div>
 
       {!thread.locked ? (
         <form onSubmit={reply} className="panel p-4 space-y-3">
-          <textarea className="input min-h-24" name="body" placeholder="Reply…" required />
-          <button className="btn btn-accent">Reply</button>
+          <textarea className="input min-h-24" name="body" placeholder="Reply" required />
+          <button type="submit" className="btn btn-accent">
+            Reply
+          </button>
         </form>
       ) : (
-        <p className="text-[var(--muted)]">Thread locked.</p>
+        <p className="muted ui text-sm">Thread locked.</p>
       )}
     </div>
   );

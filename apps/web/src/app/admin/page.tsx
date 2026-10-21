@@ -70,12 +70,10 @@ export default function AdminPage() {
   const canAssign = user.role === "LTA" || user.role === "MANAGER" || user.role === "OWNER";
 
   return (
-    <div className="rise space-y-6">
+    <div className="space-y-5">
       <div>
         <h1 className="text-3xl mb-1">Admin</h1>
-        <p className="text-sm text-[var(--muted)] font-[family-name:var(--font-mono)]">
-          Your role: {user.role}
-        </p>
+        <p className="ui text-sm muted m-0">Role: {user.role}</p>
       </div>
 
       {canAssign && (
@@ -88,26 +86,28 @@ export default function AdminPage() {
               </option>
             ))}
           </select>
-          <button className="btn btn-accent">Assign</button>
+          <button type="submit" className="btn btn-accent">
+            Assign
+          </button>
         </form>
       )}
 
-      {msg && <p className="text-[var(--accent)] text-sm">{msg}</p>}
-      {error && <p className="text-[var(--danger)] text-sm">{error}</p>}
+      {msg && <p className="ui text-sm text-[var(--accent)]">{msg}</p>}
+      {error && <p className="ui text-sm text-[var(--danger)]">{error}</p>}
 
-      <div className="panel divide-y divide-[var(--line)]">
+      <div className="panel">
         {users.map((u) => (
-          <div key={u.id} className="p-3 flex flex-wrap items-center gap-3 justify-between">
+          <div key={u.id} className="table-row">
             <div>
-              <p className="flex items-center gap-2">
+              <p className="m-0 flex items-center gap-2">
                 <strong>{u.username}</strong>
                 <RoleBadge role={u.role} />
-                {u.banned && <span className="text-[var(--danger)] text-xs">banned</span>}
+                {u.banned && <span className="text-[var(--danger)] ui text-xs">banned</span>}
               </p>
-              <p className="text-xs text-[var(--muted)] font-[family-name:var(--font-mono)]">
+              <p className="m-0 mt-1 ui text-xs muted">
                 {u.email}
-                {u.vipExpiresAt ? ` · VIP until ${new Date(u.vipExpiresAt).toLocaleDateString()}` : ""}
-                {u.staExpiresAt ? ` · STA until ${new Date(u.staExpiresAt).toLocaleDateString()}` : ""}
+                {u.vipExpiresAt ? ` · VIP ${new Date(u.vipExpiresAt).toLocaleDateString()}` : ""}
+                {u.staExpiresAt ? ` · STA ${new Date(u.staExpiresAt).toLocaleDateString()}` : ""}
               </p>
             </div>
           </div>

@@ -26,6 +26,27 @@ export function createUsersRouter() {
     res.json(users);
   });
 
+  router.get("/leaders", async (_req, res) => {
+    const users = await prisma.user.findMany({
+      where: {
+        banned: false,
+        NOT: { role: "OWNER" },
+      },
+      orderBy: [{ wins: "desc" }, { losses: "asc" }],
+      take: 50,
+      select: {
+        id: true,
+        username: true,
+        role: true,
+        image: true,
+        wins: true,
+        losses: true,
+        draws: true,
+      },
+    });
+    res.json(users);
+  });
+
   router.get("/:username", async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { username: param(req, "username") },

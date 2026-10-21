@@ -56,53 +56,51 @@ export default function CategoryPage() {
   }
 
   return (
-    <div className="rise">
-      <Link href="/forum" className="text-sm font-[family-name:var(--font-mono)] text-[var(--muted)]">
-        ← Forum
+    <div>
+      <Link href="/forum" className="ui text-sm link-accent">
+        Forum
       </Link>
-      <div className="flex items-end justify-between gap-4 mt-2 mb-6">
+      <div className="flex flex-wrap items-end justify-between gap-3 mt-2 mb-5">
         <div>
-          <h1 className="text-3xl">{category?.name || slug}</h1>
-          <p className="text-[var(--muted)] text-sm">{category?.description}</p>
+          <h1 className="text-3xl m-0">{category?.name || slug}</h1>
+          {category?.description && (
+            <p className="muted ui text-sm mt-1 mb-0">{category.description}</p>
+          )}
         </div>
-        <button className="btn btn-accent" onClick={() => setShowNew((v) => !v)}>
+        <button type="button" className="btn btn-accent" onClick={() => setShowNew((v) => !v)}>
           New thread
         </button>
       </div>
 
       {showNew && (
-        <form onSubmit={createThread} className="panel p-4 mb-6 space-y-3">
+        <form onSubmit={createThread} className="panel p-4 mb-5 space-y-3">
           <input className="input" name="title" placeholder="Title" required />
-          <textarea className="input min-h-28" name="body" placeholder="First post…" required />
-          {error && <p className="text-[var(--danger)] text-sm">{error}</p>}
-          <button className="btn btn-accent">Post</button>
+          <textarea className="input min-h-28" name="body" placeholder="Message" required />
+          {error && <p className="text-[var(--danger)] ui text-sm">{error}</p>}
+          <button type="submit" className="btn btn-accent">
+            Post
+          </button>
         </form>
       )}
 
-      <div className="panel divide-y divide-[var(--line)]">
+      <div className="panel">
         {threads.map((t) => (
-          <Link
-            key={t.id}
-            href={`/forum/thread/${t.id}`}
-            className="flex items-center justify-between gap-3 p-4 hover:bg-[rgba(47,111,78,0.06)]"
-          >
+          <Link key={t.id} href={`/forum/thread/${t.id}`} className="table-row">
             <div>
-              <p className="text-lg">
-                {t.pinned ? "📌 " : ""}
+              <p className="m-0 text-lg">
+                {t.pinned ? "[pinned] " : ""}
                 {t.title}
-                {t.locked ? " 🔒" : ""}
+                {t.locked ? " [locked]" : ""}
               </p>
-              <p className="text-sm text-[var(--muted)] flex items-center gap-2 mt-1">
+              <p className="m-0 mt-1 ui text-sm muted flex items-center gap-2">
                 <span>{t.author.username}</span>
-                <RoleBadge role={t.author.role} />
+                {t.author.role !== "MEMBER" && <RoleBadge role={t.author.role} />}
               </p>
             </div>
-            <span className="font-[family-name:var(--font-mono)] text-xs text-[var(--muted)]">
-              {t._count.posts} posts
-            </span>
+            <span className="ui text-xs muted shrink-0">{t._count.posts}</span>
           </Link>
         ))}
-        {!threads.length && <p className="p-4 text-[var(--muted)]">No threads yet.</p>}
+        {!threads.length && <p className="p-4 muted ui text-sm">No threads yet.</p>}
       </div>
     </div>
   );

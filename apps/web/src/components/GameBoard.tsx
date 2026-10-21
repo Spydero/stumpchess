@@ -220,6 +220,17 @@ export function GameBoard(props: Props) {
       setTransport("local");
       engineRef.current = createStockfish();
       engineRef.current.setSkill(props.botLevel ?? 5);
+      // If user is black, computer opens
+      if (myColor === "b" && chessRef.current.turn() === "w" && status === "ACTIVE") {
+        setTimeout(async () => {
+          const best = await engineRef.current?.bestMove(
+            chessRef.current.fen(),
+            Math.min(12, 4 + Math.floor((props.botLevel ?? 5) / 2))
+          );
+          const m = best ? uciToMove(best) : null;
+          if (m) applyMove(m.from, m.to, m.promotion, true);
+        }, 400);
+      }
     }
 
     return () => {
@@ -227,7 +238,7 @@ export function GameBoard(props: Props) {
       s.off("game:ended", onEnded);
       engineRef.current?.dispose();
     };
-  }, [props.gameId, props.userId, props.isBot, props.botLevel, opponentId, myColor, applyMove]);
+  }, [props.gameId, props.userId, props.isBot, props.botLevel, opponentId, myColor, applyMove, status]);
 
   useEffect(() => {
     if (status !== "ACTIVE") return;
@@ -275,48 +286,42 @@ export function GameBoard(props: Props) {
   }, [fen, status]);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(280px,480px)_1fr]">
-      <div className="rise">
+    <div className="grid gap-4 lg:grid-cols-[minmax(260px,min(100%,520px))_minmax(200px,1fr)]">
+      <div className="w-full max-w-[520px]">
         <Chessboard
           position={fen}
           onPieceDrop={onDrop}
           boardOrientation={orientation}
-          customBoardStyle={{ borderRadius: 0, boxShadow: "0 12px 40px rgba(28,25,20,0.18)" }}
+          customBoardStyle={{ borderRadius: 2, boxShadow: "var(--shadow)" }}
           customDarkSquareStyle={{ backgroundColor: "var(--board-dark)" }}
           customLightSquareStyle={{ backgroundColor: "var(--board-light)" }}
           customSquareStyles={customSquares}
           arePiecesDraggable={status === "ACTIVE" && !!myColor}
         />
       </div>
-      <aside className="panel p-5 rise h-fit" style={{ animationDelay: "80ms" }}>
+      <aside className="panel p-4 sm:p-5 h-fit">
         <div className="flex justify-between items-start mb-4">
           <div>
-            <p className="font-[family-name:var(--font-mono)] text-xs uppercase text-[var(--muted)]">
-              Black
-            </p>
-            <p className="text-xl">{props.blackName}</p>
+            <p className="ui text-xs uppercase muted m-0">Black</p>
+            <p className="text-lg sm:text-xl m-0 mt-0.5">{props.blackName}</p>
           </div>
-          <p className="font-[family-name:var(--font-mono)] text-2xl">{fmt(clocks.b)}</p>
+          <p className="ui text-xl sm:text-2xl font-semibold m-0 tabular-nums">{fmt(clocks.b)}</p>
         </div>
-        <div className="flex justify-between items-start mb-6 border-t border-[var(--line)] pt-4">
+        <div className="flex justify-between items-start mb-5 border-t border-[var(--line)] pt-4">
           <div>
-            <p className="font-[family-name:var(--font-mono)] text-xs uppercase text-[var(--muted)]">
-              White
-            </p>
-            <p className="text-xl">{props.whiteName}</p>
+            <p className="ui text-xs uppercase muted m-0">White</p>
+            <p className="text-lg sm:text-xl m-0 mt-0.5">{props.whiteName}</p>
           </div>
-          <p className="font-[family-name:var(--font-mono)] text-2xl">{fmt(clocks.w)}</p>
+          <p className="ui text-xl sm:text-2xl font-semibold m-0 tabular-nums">{fmt(clocks.w)}</p>
         </div>
 
-        <p className="text-sm font-[family-name:var(--font-mono)] text-[var(--muted)] mb-2">
-          Transport: {transport}
-          {props.isBot ? " · bot (your CPU)" : ""}
-        </p>
-        {status === "FINISHED" && (
-          <p className="text-lg mb-4">Result: {result}</p>
+        {props.isBot && <p className="ui text-sm muted mb-2">Computer game</p>}
+        {!props.isBot && transport === "webrtc" && (
+          <p className="ui text-sm muted mb-2">Direct connection</p>
         )}
+        {status === "FINISHED" && <p className="text-lg mb-4 ui">Result: {result}</p>}
         {status === "ACTIVE" && myColor && (
-          <button className="btn btn-ghost" onClick={resign}>
+          <button type="button" className="btn btn-ghost" onClick={resign}>
             Resign
           </button>
         )}

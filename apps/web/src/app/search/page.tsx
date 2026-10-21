@@ -22,30 +22,28 @@ export default function SearchPage() {
   }
 
   return (
-    <div className="max-w-xl rise">
-      <h1 className="text-3xl mb-4">Search players</h1>
+    <div className="max-w-xl">
+      <h1 className="text-3xl mb-4">Search</h1>
       <input
         className="input mb-4"
-        placeholder="Username…"
+        placeholder="Username"
         value={q}
         onChange={(e) => search(e.target.value)}
       />
-      <div className="panel divide-y divide-[var(--line)]">
+      <div className="panel">
         {hits.map((u) => (
-          <Link
-            key={u.id}
-            href={`/u/${u.username}`}
-            className="flex items-center gap-3 p-3 hover:bg-[rgba(47,111,78,0.06)]"
-          >
-            {u.image && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={u.image} alt="" className="w-8 h-8 border border-[var(--line)]" />
-            )}
-            <span>{u.username}</span>
-            <RoleBadge role={u.role} />
+          <Link key={u.id} href={`/u/${u.username}`} className="table-row">
+            <div className="flex items-center gap-3">
+              {u.image && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={u.image} alt="" className="w-8 h-8 border border-[var(--line)]" />
+              )}
+              <span className="ui font-semibold">{u.username}</span>
+              {u.role !== "MEMBER" && <RoleBadge role={u.role} />}
+            </div>
           </Link>
         ))}
-        {q && !hits.length && <p className="p-3 text-[var(--muted)]">No users found.</p>}
+        {q && !hits.length && <p className="p-4 muted ui text-sm">No users found.</p>}
       </div>
     </div>
   );

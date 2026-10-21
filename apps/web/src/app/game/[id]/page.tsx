@@ -28,15 +28,35 @@ export default function GamePage() {
   const user = data?.user as { id: string } | undefined;
   const [game, setGame] = useState<Game | null>(null);
   const [error, setError] = useState("");
+  const [accepting, setAccepting] = useState(false);
 
-  useEffect(() => {
+  function load() {
     apiFetch(`/api/games/${params.id}`)
       .then(setGame)
       .catch((e) => setError(e.message));
-  }, [params.id]);
+  }
+
+  useEffect(load, [params.id]);
+
+  async function accept() {
+    if (!user) return router.push("/login");
+    setAccepting(true);
+    try {
+      const updated = await apiFetch(`/api/games/${params.id}/accept`, {
+        method: "POST",
+        userId: user.id,
+      });
+      setGame((g) => (g ? { ...g, ...updated } : g));
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setAccepting(false);
+    }
+  }
 
   if (isPending || !game) {
-    return <p className="pulse-soft">{error || "Loading game…"}</p>;
+    return <p className="pulse-soft ui muted">{error || "Loading…"}</p>;
   }
   if (!user) {
     router.push("/login");
@@ -44,18 +64,41 @@ export default function GamePage() {
   }
 
   const isBot = game.isBot || search.get("bot") === "1";
+  const isParticipant = user.id === game.whiteId || user.id === game.blackId;
+
+  if (game.status === "WAITING") {
+    return (
+      <div className="panel p-5 max-w-lg">
+        <h1 className="text-2xl mb-2">Challenge</h1>
+        <p className="ui muted mb-4">
+          {game.white?.username || "White"} vs {game.black?.username || "Black"} ({game.initialMs / 60000}+0)
+        </p>
+        {isParticipant ? (
+          <button type="button" className="btn btn-accent" onClick={accept} disabled={accepting}>
+            {accepting ? "…" : "Accept and start"}
+          </button>
+        ) : (
+          <p className="ui text-sm muted">Waiting for players to accept.</p>
+        )}
+        {error && <p className="text-[var(--danger)] ui text-sm mt-3">{error}</p>}
+      </div>
+    );
+  }
 
   return (
     <div>
-      <h1 className="text-2xl mb-4 font-[family-name:var(--font-mono)]">Game</h1>
+      <h1 className="text-xl sm:text-2xl mb-4 ui font-semibold">
+        {game.white?.username || (isBot && game.whiteId === user.id ? "You" : "White")} vs{" "}
+        {game.black?.username || (isBot ? `Bot ${game.botLevel ?? 5}` : "Black")}
+      </h1>
       <GameBoard
         gameId={game.id}
         userId={user.id}
         initialFen={game.fen}
         whiteId={game.whiteId}
         blackId={game.blackId}
-        whiteName={game.white?.username || (isBot ? "You" : "White")}
-        blackName={game.black?.username || (isBot ? `Bot lv${game.botLevel ?? 5}` : "Black")}
+        whiteName={game.white?.username || (isBot && game.whiteId === user.id ? "You" : "White")}
+        blackName={game.black?.username || (isBot ? `Bot ${game.botLevel ?? 5}` : "Black")}
         initialMs={game.initialMs}
         isBot={isBot}
         botLevel={game.botLevel ?? 5}

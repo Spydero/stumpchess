@@ -48,11 +48,8 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="mx-auto max-w-md panel p-6 rise">
-      <h1 className="text-3xl mb-2">Register</h1>
-      <p className="text-[var(--muted)] mb-6 font-[family-name:var(--font-mono)] text-sm">
-        Simple account. You start as Member.
-      </p>
+    <div className="mx-auto max-w-md panel p-5 sm:p-6">
+      <h1 className="text-3xl mb-5">Register</h1>
       <form onSubmit={onSubmit} className="space-y-3">
         <input className="input" name="username" placeholder="Username" required minLength={3} />
         <input className="input" name="email" type="email" placeholder="Email" required />
@@ -64,13 +61,13 @@ export default function RegisterPage() {
           required
           minLength={8}
         />
-        {error && <p className="text-[var(--danger)] text-sm">{error}</p>}
+        {error && <p className="text-[var(--danger)] ui text-sm">{error}</p>}
         <button className="btn btn-accent w-full" disabled={loading}>
           {loading ? "…" : "Create account"}
         </button>
       </form>
-      <p className="mt-4 text-sm text-[var(--muted)]">
-        Have an account? <Link href="/login" className="underline">Login</Link>
+      <p className="mt-4 ui text-sm muted">
+        Have an account? <Link href="/login" className="link-accent">Login</Link>
       </p>
     </div>
   );

@@ -37,50 +37,47 @@ export default function ProfilePage() {
       .catch((e) => setError(e.message));
   }, [username]);
 
-  if (error) return <p className="text-[var(--danger)]">{error}</p>;
-  if (!profile) return <p className="pulse-soft">Loading…</p>;
+  if (error) return <p className="text-[var(--danger)] ui">{error}</p>;
+  if (!profile) return <p className="pulse-soft ui muted">Loading…</p>;
 
   return (
-    <div className="rise max-w-2xl">
-      <div className="panel p-6 mb-6 flex gap-4 items-center">
+    <div className="max-w-2xl">
+      <div className="panel p-5 mb-5 flex gap-4 items-center">
         {profile.image && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={profile.image} alt="" className="w-16 h-16 border border-[var(--line)]" />
+          <img src={profile.image} alt="" className="w-14 h-14 border border-[var(--line)]" />
         )}
         <div>
-          <h1 className="text-3xl">{profile.username}</h1>
-          <div className="flex items-center gap-2 mt-1">
-            <RoleBadge role={profile.role} />
-            {profile.displayLabel && (
-              <span className="font-[family-name:var(--font-mono)] text-sm text-[var(--muted)]">
-                ({profile.displayLabel})
-              </span>
-            )}
+          <h1 className="text-3xl m-0">{profile.username}</h1>
+          <div className="flex items-center gap-2 mt-1.5">
+            {profile.role !== "MEMBER" && <RoleBadge role={profile.role} />}
+            {profile.displayLabel && <span className="ui text-sm muted">{profile.displayLabel}</span>}
           </div>
           {!profile.hideStats ? (
-            <p className="mt-3 font-[family-name:var(--font-mono)] text-sm text-[var(--muted)]">
-              {profile.wins}W / {profile.losses}L / {profile.draws}D
-              {profile.createdAt ? ` · joined ${new Date(profile.createdAt).toLocaleDateString()}` : ""}
+            <p className="mt-2 ui text-sm muted m-0">
+              {profile.wins}W {profile.losses}L {profile.draws}D
+              {profile.createdAt
+                ? ` · joined ${new Date(profile.createdAt).toLocaleDateString()}`
+                : ""}
             </p>
-          ) : (
-            <p className="mt-3 text-sm text-[var(--muted)]">Account details hidden.</p>
-          )}
+          ) : null}
         </div>
       </div>
 
       <h2 className="text-xl mb-3">Games</h2>
-      <div className="panel divide-y divide-[var(--line)]">
+      <div className="panel">
         {profile.games.map((g) => (
-          <Link key={g.id} href={`/game/${g.id}`} className="block p-3 hover:bg-[rgba(47,111,78,0.06)]">
-            <span className="font-[family-name:var(--font-mono)] text-sm">
-              {g.white?.username || "?"} vs {g.black?.username || "?"} · {g.timeControl} · {g.result}
+          <Link key={g.id} href={`/game/${g.id}`} className="table-row ui text-sm">
+            <span>
+              {g.white?.username || "?"} vs {g.black?.username || "?"}
+              {profile.hideStats ? " · Owner" : ""}
             </span>
-            {profile.hideStats && (
-              <span className="block text-xs text-[var(--muted)] mt-1">(Owner)</span>
-            )}
+            <span className="muted shrink-0">
+              {g.timeControl} {g.result}
+            </span>
           </Link>
         ))}
-        {!profile.games.length && <p className="p-3 text-[var(--muted)]">No finished games.</p>}
+        {!profile.games.length && <p className="p-4 muted ui text-sm">No finished games.</p>}
       </div>
     </div>
   );

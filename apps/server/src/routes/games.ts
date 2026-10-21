@@ -53,6 +53,50 @@ export function createGamesRouter() {
     res.status(201).json(game);
   });
 
+  router.post("/challenge", requireUser, async (req: AuthedRequest, res) => {
+    const username = String(req.body?.username || "").trim();
+    const tcId = String(req.body?.timeControl || "5+0");
+    const tc = TIME_CONTROLS.find((t) => t.id === tcId) || TIME_CONTROLS[1];
+    if (!username) return res.status(400).json({ error: "Username required" });
+
+    const all = await prisma.user.findMany({
+      where: { banned: false },
+      select: { id: true, username: true },
+    });
+    const opponentMeta = all.find((u) => u.username.toLowerCase() === username.toLowerCase());
+    if (!opponentMeta) return res.status(404).json({ error: "User not found" });
+    const opponent = await prisma.user.findUnique({ where: { id: opponentMeta.id } });
+    if (!opponent) return res.status(404).json({ error: "User not found" });
+    if (opponent.id === req.user!.id) return res.status(400).json({ error: "Cannot challenge yourself" });
+
+    const whiteFirst = Math.random() < 0.5;
+    const game = await prisma.game.create({
+      data: {
+        status: "WAITING",
+        timeControl: tc.id,
+        initialMs: tc.initialMs,
+        incrementMs: tc.incrementMs,
+        whiteId: whiteFirst ? req.user!.id : opponent.id,
+        blackId: whiteFirst ? opponent.id : req.user!.id,
+      },
+    });
+    res.status(201).json(game);
+  });
+
+  router.post("/:id/accept", requireUser, async (req: AuthedRequest, res) => {
+    const game = await prisma.game.findUnique({ where: { id: param(req, "id") } });
+    if (!game) return res.status(404).json({ error: "Not found" });
+    if (game.status !== "WAITING") return res.status(400).json({ error: "Not waiting" });
+    if (req.user!.id !== game.whiteId && req.user!.id !== game.blackId) {
+      return res.status(403).json({ error: "Not your challenge" });
+    }
+    const updated = await prisma.game.update({
+      where: { id: game.id },
+      data: { status: "ACTIVE", startedAt: new Date() },
+    });
+    res.json(updated);
+  });
+
   router.post("/:id/result", requireUser, async (req: AuthedRequest, res) => {
     const game = await prisma.game.findUnique({ where: { id: param(req, "id") } });
     if (!game) return res.status(404).json({ error: "Not found" });

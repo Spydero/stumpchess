@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TIME_CONTROLS, type TimeControlId } from "@chess/shared";
 import { useSession } from "@/lib/auth-client";
 import { getSocket } from "@/lib/socket";
 import { apiFetch } from "@/lib/api";
-import Link from "next/link";
 
 export default function PlayPage() {
   const { data, isPending } = useSession();
@@ -15,7 +14,10 @@ export default function PlayPage() {
   const [waiting, setWaiting] = useState(false);
   const [tc, setTc] = useState<TimeControlId>("5+0");
   const [botLevel, setBotLevel] = useState(5);
+  const [botColor, setBotColor] = useState<"w" | "b">("w");
+  const [challengeUser, setChallengeUser] = useState("");
   const [error, setError] = useState("");
+  const [inviteUrl, setInviteUrl] = useState("");
 
   useEffect(() => {
     if (!user) return;
@@ -46,6 +48,7 @@ export default function PlayPage() {
   function joinQueue() {
     if (!user) return router.push("/login");
     setError("");
+    setInviteUrl("");
     getSocket().emit("queue:join", { timeControl: tc });
   }
 
@@ -60,7 +63,7 @@ export default function PlayPage() {
       const game = await apiFetch("/api/games/bot", {
         method: "POST",
         userId: user.id,
-        body: JSON.stringify({ level: botLevel, color: "w" }),
+        body: JSON.stringify({ level: botLevel, color: botColor }),
       });
       router.push(`/game/${game.id}?bot=1`);
     } catch (e) {
@@ -68,19 +71,35 @@ export default function PlayPage() {
     }
   }
 
-  if (isPending) return <p className="pulse-soft">Loading…</p>;
+  async function challenge(e: FormEvent) {
+    e.preventDefault();
+    if (!user) return router.push("/login");
+    setError("");
+    try {
+      const game = await apiFetch("/api/games/challenge", {
+        method: "POST",
+        userId: user.id,
+        body: JSON.stringify({ username: challengeUser.trim(), timeControl: tc }),
+      });
+      const url = `${window.location.origin}/game/${game.id}`;
+      setInviteUrl(url);
+      router.push(`/game/${game.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Challenge failed");
+    }
+  }
+
+  if (isPending) return <p className="pulse-soft ui muted">Loading…</p>;
 
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      <section className="panel p-6 rise">
-        <h1 className="text-3xl mb-2">Play</h1>
-        <p className="text-[var(--muted)] mb-6 text-sm font-[family-name:var(--font-mono)]">
-          Join the queue — you&apos;ll be paired with whoever is waiting.
-        </p>
+    <div className="grid gap-4 md:gap-5 md:grid-cols-2 xl:grid-cols-3">
+      <section className="panel p-5">
+        <h1 className="text-2xl sm:text-3xl mb-4">Quick match</h1>
         <div className="flex flex-wrap gap-2 mb-4">
           {TIME_CONTROLS.map((t) => (
             <button
               key={t.id}
+              type="button"
               className={`btn ${tc === t.id ? "btn-accent" : "btn-ghost"} !py-2`}
               onClick={() => setTc(t.id)}
               disabled={waiting}
@@ -90,30 +109,22 @@ export default function PlayPage() {
           ))}
         </div>
         {!waiting ? (
-          <button className="btn btn-accent" onClick={joinQueue}>
+          <button type="button" className="btn btn-accent w-full sm:w-auto" onClick={joinQueue}>
             Find opponent
           </button>
         ) : (
           <div className="space-y-3">
-            <p className="pulse-soft font-[family-name:var(--font-mono)] text-sm">
-              Waiting for opponent…
-            </p>
-            <button className="btn btn-ghost" onClick={leaveQueue}>
+            <p className="pulse-soft ui text-sm muted">Waiting for opponent…</p>
+            <button type="button" className="btn btn-ghost" onClick={leaveQueue}>
               Cancel
             </button>
           </div>
         )}
-        {error && <p className="text-[var(--danger)] mt-3 text-sm">{error}</p>}
       </section>
 
-      <section className="panel p-6 rise" style={{ animationDelay: "80ms" }}>
-        <h2 className="text-2xl mb-2">Play vs Bot</h2>
-        <p className="text-[var(--muted)] mb-4 text-sm">
-          Stockfish runs in your browser. Free for all Members.
-        </p>
-        <label className="block text-sm font-[family-name:var(--font-mono)] mb-2">
-          Level {botLevel}
-        </label>
+      <section id="bot" className="panel p-5">
+        <h2 className="text-2xl sm:text-3xl mb-4">vs Computer</h2>
+        <label className="block ui text-sm muted mb-1">Level {botLevel}</label>
         <input
           type="range"
           min={1}
@@ -122,16 +133,49 @@ export default function PlayPage() {
           onChange={(e) => setBotLevel(Number(e.target.value))}
           className="w-full mb-4"
         />
-        <button className="btn btn-accent" onClick={playBot}>
-          Start bot game
+        <div className="flex gap-2 mb-4">
+          <button
+            type="button"
+            className={`btn flex-1 ${botColor === "w" ? "btn-accent" : "btn-ghost"}`}
+            onClick={() => setBotColor("w")}
+          >
+            White
+          </button>
+          <button
+            type="button"
+            className={`btn flex-1 ${botColor === "b" ? "btn-accent" : "btn-ghost"}`}
+            onClick={() => setBotColor("b")}
+          >
+            Black
+          </button>
+        </div>
+        <button type="button" className="btn btn-accent w-full sm:w-auto" onClick={playBot}>
+          Start
         </button>
-        <p className="mt-6 text-sm text-[var(--muted)]">
-          Want engine labels on a PGN?{" "}
-          <Link href="/analysis" className="underline">
-            VIP Analysis
-          </Link>
-        </p>
       </section>
+
+      <section className="panel p-5 md:col-span-2 xl:col-span-1">
+        <h2 className="text-2xl sm:text-3xl mb-4">Challenge</h2>
+        <form onSubmit={challenge} className="space-y-3">
+          <input
+            className="input"
+            placeholder="Username"
+            value={challengeUser}
+            onChange={(e) => setChallengeUser(e.target.value)}
+            required
+          />
+          <button type="submit" className="btn btn-accent w-full sm:w-auto">
+            Send challenge
+          </button>
+        </form>
+        {inviteUrl && (
+          <p className="mt-3 ui text-xs muted break-all">Invite: {inviteUrl}</p>
+        )}
+      </section>
+
+      {error && (
+        <p className="text-[var(--danger)] ui text-sm md:col-span-2 xl:col-span-3">{error}</p>
+      )}
     </div>
   );
 }
