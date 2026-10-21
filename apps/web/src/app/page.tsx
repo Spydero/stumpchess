@@ -68,20 +68,22 @@ export default function HomePage() {
 
       <section className="panel p-3 sm:p-4">
         <div
-          className="aspect-square w-full rounded-sm border border-[var(--line)]"
-          style={{
-            backgroundColor: "var(--board-light)",
-            backgroundImage: `
-              linear-gradient(45deg, var(--board-dark) 25%, transparent 25%),
-              linear-gradient(-45deg, var(--board-dark) 25%, transparent 25%),
-              linear-gradient(45deg, transparent 75%, var(--board-dark) 75%),
-              linear-gradient(-45deg, transparent 75%, var(--board-dark) 75%)
-            `,
-            backgroundSize: "12.5% 12.5%",
-            backgroundPosition: "0 0, 0 6.25%, 6.25% -6.25%, -6.25% 0",
-          }}
+          className="aspect-square w-full rounded-sm border border-[var(--line)] overflow-hidden grid"
+          style={{ gridTemplateColumns: "repeat(8, 1fr)", gridTemplateRows: "repeat(8, 1fr)" }}
           aria-hidden
-        />
+        >
+          {Array.from({ length: 64 }, (_, i) => {
+            const row = Math.floor(i / 8);
+            const col = i % 8;
+            const dark = (row + col) % 2 === 1;
+            return (
+              <div
+                key={i}
+                style={{ background: dark ? "var(--board-dark)" : "var(--board-light)" }}
+              />
+            );
+          })}
+        </div>
         <div className="mt-3 flex gap-2">
           <Link href="/leaders" className="btn btn-ghost flex-1 !text-sm">
             Leaders
