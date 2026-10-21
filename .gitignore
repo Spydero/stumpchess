@@ -3,6 +3,7 @@ node_modules
 dist
 .turbo
 .cursor
+AGENTS.md
 .env
 .env.local
 *.db
