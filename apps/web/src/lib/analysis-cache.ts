@@ -75,9 +75,19 @@ export function saveLocalAnalysis(pgn: string, analysis: StoredAnalysis) {
 
 const MISTAKE_LABELS: ClassLabel[] = ["Inaccuracy", "Mistake", "Miss", "Blunder"];
 
+function playedUci(m: StoredAnalyzedMove) {
+  return `${m.from}${m.to}`.toLowerCase();
+}
+
 /** Positions worth drilling from a saved review. */
 export function filterMistakeMoves(moves: StoredAnalyzedMove[]): StoredAnalyzedMove[] {
-  return moves.filter(
-    (m) => MISTAKE_LABELS.includes(m.classification) && Boolean(m.bestMove || m.fenBefore)
-  );
+  return moves.filter((m) => {
+    if (!MISTAKE_LABELS.includes(m.classification)) return false;
+    if (!m.fenBefore || !m.bestMove) return false;
+    // Skip if engine best is the same move (noise / classification edge cases)
+    const best = m.bestMove.toLowerCase();
+    const played = playedUci(m);
+    if (best === played || best.slice(0, 4) === played) return false;
+    return true;
+  });
 }
