@@ -44,7 +44,32 @@ Then in another terminal (with web running):
 
 ### Screenshots
 
-See [`docs/screenshots/`](docs/screenshots/) for home, login, play, VIP analysis, forum, Owner profile.
+See [`docs/screenshots/`](docs/screenshots/):
+
+| File | Page |
+|------|------|
+| `01-home.png` | Home |
+| `02-login.png` | Login |
+| `03-play.png` | Play |
+| `04-analysis-vip.png` | Game Review |
+| `05-forum.png` | Forum |
+| `06-owner-profile.png` | Owner profile (`/u/jOjo`) |
+| `07-admin.png` | Admin (open vs VIP-only features) |
+| `08-practice.png` | Practice |
+
+### Owner login
+
+1. Start Postgres + apps (`pnpm db:up` or local Postgres, then `pnpm db:push && pnpm db:seed && pnpm dev`).
+2. Open http://localhost:3000/login
+3. Email: `jojo@local.dev` · Password: `OwnerChangeMe123!` · Username: `jOjo`
+
+If the account does not exist yet (fresh DB), with the web app running:
+
+```bash
+./scripts/bootstrap-owner.sh
+```
+
+Then log in with the same credentials.
 
 ## Google link (optional)
 
