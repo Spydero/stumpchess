@@ -13,6 +13,7 @@
     "db:reset-owner-password": "OWNER_RESET_PASSWORD=1 pnpm --filter @chess/db seed",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
+    "screenshots": "node scripts/capture-screenshots.mjs",
     "postinstall": "pnpm db:generate"
   },
   "engines": {
